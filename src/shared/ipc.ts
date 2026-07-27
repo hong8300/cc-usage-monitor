@@ -3,10 +3,14 @@
  */
 
 import type { AppSettings, BridgeState, UsageSnapshot } from "./types.ts";
+import type { LocalUsageReport } from "./usage-types.ts";
 
 export const IPC = {
   getSnapshot: "usage:getSnapshot",
   snapshotChanged: "usage:snapshotChanged",
+  getLocalReport: "local:getReport",
+  refreshLocalReport: "local:refresh",
+  localReportChanged: "local:reportChanged",
   getBridgeState: "bridge:getState",
   enableBridge: "bridge:enable",
   disableBridge: "bridge:disable",
@@ -31,6 +35,11 @@ export interface AppPaths {
 export interface MonitorApi {
   getSnapshot(): Promise<UsageSnapshot | null>;
   onSnapshot(listener: (snapshot: UsageSnapshot | null) => void): () => void;
+
+  /** ローカル JSONL 集計 (推定値)。statusLine 由来の公式値とは別系統。 */
+  getLocalReport(): Promise<LocalUsageReport | null>;
+  refreshLocalReport(): Promise<LocalUsageReport>;
+  onLocalReport(listener: (report: LocalUsageReport) => void): () => void;
 
   getBridgeState(): Promise<BridgeState>;
   enableBridge(): Promise<BridgeState>;

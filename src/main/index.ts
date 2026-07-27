@@ -4,6 +4,7 @@ import { BrowserWindow, app, ipcMain, screen, shell } from "electron";
 import { IPC } from "../shared/ipc.ts";
 import type { AppSettings } from "../shared/types.ts";
 import { bridgePaths, disableBridge, enableBridge, getBridgeState } from "./bridge/bridge-manager.ts";
+import { LocalUsageService } from "./jsonl/service.ts";
 import { loadSettings, saveSettings } from "./store.ts";
 import { TrayController } from "./tray.ts";
 import { UsageWatcher } from "./watcher.ts";
@@ -14,6 +15,7 @@ let tray: TrayController | null = null;
 let panel: BrowserWindow | null = null;
 let settings: AppSettings = loadSettings();
 const watcher = new UsageWatcher();
+const localUsage = new LocalUsageService();
 
 /** Tray 常駐アプリなので Dock には出さない (macOS)。 */
 function hideFromDock(): void {
@@ -99,6 +101,9 @@ function registerIpc(): void {
   ipcMain.handle(IPC.getSnapshot, () => watcher.current());
   ipcMain.handle(IPC.getBridgeState, () => getBridgeState());
 
+  ipcMain.handle(IPC.getLocalReport, () => localUsage.current());
+  ipcMain.handle(IPC.refreshLocalReport, () => localUsage.refresh());
+
   ipcMain.handle(IPC.enableBridge, () => {
     const state = enableBridge();
     broadcast(IPC.bridgeStateChanged, state);
@@ -150,6 +155,10 @@ if (!app.requestSingleInstanceLock()) {
     });
     watcher.start();
     tray.update(watcher.current());
+
+    localUsage.onReport((report) => broadcast(IPC.localReportChanged, report));
+    // 起動直後の全ファイル走査で UI を待たせないよう、次のイベントループに逃がす。
+    setImmediate(() => localUsage.start());
   });
 
   // Tray 常駐なので全ウィンドウが閉じても終了しない。
@@ -157,6 +166,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.on("before-quit", () => {
     watcher.stop();
+    localUsage.stop();
     tray?.destroy();
   });
 }

@@ -1,0 +1,189 @@
+{
+  "$comment": [
+    "Claude API の公式料金表。指示書 §3-B により、価格はコード中にハードコードせずこのファイルに分離する。",
+    "",
+    "単位はすべて USD / 100万トークン (MTok)。",
+    "",
+    "重要: ここに載っているのは Claude **API** の料金であり、Claude Code のサブスクリプション",
+    "(Pro/Max) の請求額ではない。この値から出す金額は「同じ使用量を API で払ったらいくらか」",
+    "という推定であって、実際の請求とは一致しない。UI では必ず「推定」と明示すること。",
+    "",
+    "更新方法: sources の URL を開いて数値を突き合わせ、lastUpdated を更新する。",
+    "~/.cc-usage-monitor/pricing.json を置くとこの内蔵表より優先される (再ビルド不要)。"
+  ],
+  "lastUpdated": "2026-07-28",
+  "sources": [
+    "https://platform.claude.com/docs/en/about-claude/pricing",
+    "https://claude.com/pricing"
+  ],
+
+  "modifiers": {
+    "$comment": "他の倍率と積算される。出典は上記 pricing ページの Feature-specific pricing 節。",
+    "batch": {
+      "multiplier": 0.5,
+      "note": "Batch API は入出力とも 50% 引き。message.usage.service_tier === 'batch' で判定する。"
+    },
+    "inferenceGeoUs": {
+      "multiplier": 1.1,
+      "note": "inference_geo: 'us' は全カテゴリに 1.1x。Claude 4.6 以降のみ。'global'/'not_available' は等倍。"
+    }
+  },
+
+  "cacheMultipliers": {
+    "$comment": [
+      "各モデルの絶対額は models 側に持たせてあるので通常は使わない。",
+      "fast mode の cache 単価を導出するときと、cache_creation の内訳が無い古い行の",
+      "フォールバックにだけ使う。"
+    ],
+    "write5m": 1.25,
+    "write1h": 2.0,
+    "read": 0.1
+  },
+
+  "aliases": {
+    "$comment": "JSONL に現れる ID を models のキーへ寄せる。日付サフィックス除去後の形も含む。",
+    "claude-opus-4": "claude-opus-4-0",
+    "claude-sonnet-4": "claude-sonnet-4-0",
+    "claude-3-5-haiku": "claude-haiku-3-5"
+  },
+
+  "models": {
+    "claude-fable-5": {
+      "displayName": "Claude Fable 5",
+      "input": 10.0,
+      "output": 50.0,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20.0,
+      "cacheRead": 1.0
+    },
+    "claude-mythos-5": {
+      "displayName": "Claude Mythos 5",
+      "input": 10.0,
+      "output": 50.0,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20.0,
+      "cacheRead": 1.0
+    },
+    "claude-opus-5": {
+      "displayName": "Claude Opus 5",
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5,
+      "fast": { "input": 10.0, "output": 50.0 }
+    },
+    "claude-opus-4-8": {
+      "displayName": "Claude Opus 4.8",
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5,
+      "fast": { "input": 10.0, "output": 50.0 }
+    },
+    "claude-opus-4-7": {
+      "displayName": "Claude Opus 4.7",
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-6": {
+      "displayName": "Claude Opus 4.6",
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-5": {
+      "displayName": "Claude Opus 4.5",
+      "input": 5.0,
+      "output": 25.0,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10.0,
+      "cacheRead": 0.5
+    },
+    "claude-opus-4-1": {
+      "displayName": "Claude Opus 4.1",
+      "input": 15.0,
+      "output": 75.0,
+      "cacheWrite5m": 18.75,
+      "cacheWrite1h": 30.0,
+      "cacheRead": 1.5
+    },
+    "claude-opus-4-0": {
+      "displayName": "Claude Opus 4",
+      "input": 15.0,
+      "output": 75.0,
+      "cacheWrite5m": 18.75,
+      "cacheWrite1h": 30.0,
+      "cacheRead": 1.5
+    },
+    "claude-sonnet-5": {
+      "displayName": "Claude Sonnet 5",
+      "$comment": "2026-08-31 までは導入価格。9/1 から標準価格に切り替わるので期間で分ける。",
+      "periods": [
+        {
+          "until": "2026-09-01",
+          "note": "導入価格 (2026-08-31 まで)",
+          "input": 2.0,
+          "output": 10.0,
+          "cacheWrite5m": 2.5,
+          "cacheWrite1h": 4.0,
+          "cacheRead": 0.2
+        },
+        {
+          "note": "標準価格 (2026-09-01 以降)",
+          "input": 3.0,
+          "output": 15.0,
+          "cacheWrite5m": 3.75,
+          "cacheWrite1h": 6.0,
+          "cacheRead": 0.3
+        }
+      ]
+    },
+    "claude-sonnet-4-6": {
+      "displayName": "Claude Sonnet 4.6",
+      "input": 3.0,
+      "output": 15.0,
+      "cacheWrite5m": 3.75,
+      "cacheWrite1h": 6.0,
+      "cacheRead": 0.3
+    },
+    "claude-sonnet-4-5": {
+      "displayName": "Claude Sonnet 4.5",
+      "input": 3.0,
+      "output": 15.0,
+      "cacheWrite5m": 3.75,
+      "cacheWrite1h": 6.0,
+      "cacheRead": 0.3
+    },
+    "claude-sonnet-4-0": {
+      "displayName": "Claude Sonnet 4",
+      "input": 3.0,
+      "output": 15.0,
+      "cacheWrite5m": 3.75,
+      "cacheWrite1h": 6.0,
+      "cacheRead": 0.3
+    },
+    "claude-haiku-4-5": {
+      "displayName": "Claude Haiku 4.5",
+      "input": 1.0,
+      "output": 5.0,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 2.0,
+      "cacheRead": 0.1
+    },
+    "claude-haiku-3-5": {
+      "displayName": "Claude Haiku 3.5",
+      "input": 0.8,
+      "output": 4.0,
+      "cacheWrite5m": 1.0,
+      "cacheWrite1h": 1.6,
+      "cacheRead": 0.08
+    }
+  }
+}

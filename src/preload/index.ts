@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 import { IPC, type AppPaths, type MonitorApi } from "../shared/ipc.ts";
 import type { AppSettings, BridgeState, UsageSnapshot } from "../shared/types.ts";
+import type { LocalUsageReport } from "../shared/usage-types.ts";
 
 /** on/off をまとめて解除関数を返すヘルパ。 */
 function subscribe<T>(channel: string, listener: (value: T) => void): () => void {
@@ -12,6 +13,10 @@ function subscribe<T>(channel: string, listener: (value: T) => void): () => void
 const api: MonitorApi = {
   getSnapshot: () => ipcRenderer.invoke(IPC.getSnapshot) as Promise<UsageSnapshot | null>,
   onSnapshot: (listener) => subscribe<UsageSnapshot | null>(IPC.snapshotChanged, listener),
+
+  getLocalReport: () => ipcRenderer.invoke(IPC.getLocalReport) as Promise<LocalUsageReport | null>,
+  refreshLocalReport: () => ipcRenderer.invoke(IPC.refreshLocalReport) as Promise<LocalUsageReport>,
+  onLocalReport: (listener) => subscribe<LocalUsageReport>(IPC.localReportChanged, listener),
 
   getBridgeState: () => ipcRenderer.invoke(IPC.getBridgeState) as Promise<BridgeState>,
   enableBridge: () => ipcRenderer.invoke(IPC.enableBridge) as Promise<BridgeState>,

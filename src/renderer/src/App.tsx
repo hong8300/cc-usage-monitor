@@ -6,6 +6,8 @@ import {
   severityFor,
 } from "../../shared/normalize.ts";
 import { STALE_AFTER_MS, type BridgeState, type UsageSnapshot } from "../../shared/types.ts";
+import type { LocalUsageReport } from "../../shared/usage-types.ts";
+import { LocalUsage } from "./components/LocalUsage.tsx";
 import { Meter } from "./components/Meter.tsx";
 
 /** 1秒ごとに再描画するための now。カウントダウンと鮮度表示に使う。 */
@@ -21,17 +23,21 @@ function useNow(intervalMs = 1000): number {
 export function App() {
   const [snapshot, setSnapshot] = useState<UsageSnapshot | null>(null);
   const [bridge, setBridge] = useState<BridgeState | null>(null);
+  const [localReport, setLocalReport] = useState<LocalUsageReport | null>(null);
   const [busy, setBusy] = useState(false);
   const now = useNow();
 
   useEffect(() => {
     void window.monitor.getSnapshot().then(setSnapshot);
     void window.monitor.getBridgeState().then(setBridge);
+    void window.monitor.getLocalReport().then(setLocalReport);
     const offSnapshot = window.monitor.onSnapshot(setSnapshot);
     const offBridge = window.monitor.onBridgeState(setBridge);
+    const offLocal = window.monitor.onLocalReport(setLocalReport);
     return () => {
       offSnapshot();
       offBridge();
+      offLocal();
     };
   }, []);
 
@@ -108,17 +114,15 @@ export function App() {
           stale={stale}
         />
 
-        <section
-          className="rounded-lg px-3 py-2.5"
-          style={{ background: "var(--surface-1)", border: "1px solid var(--hairline)" }}
-        >
-          <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
-            モデル別の週次枠は statusLine では取得できません。
-          </p>
-          <p className="mt-1 text-[11px]" style={{ color: "var(--text-muted)" }}>
-            ローカルログからの推定値は Phase 2 で追加します。
-          </p>
-        </section>
+        <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+          モデル別の週次枠は statusLine では取得できません。
+        </p>
+
+        {/* ここから下はローカルログ由来の推定値。上の公式値と区切り線で明確に分ける
+            (指示書 §3-B: A 由来と B 由来を視覚的に区別すること)。 */}
+        <div style={{ borderTop: "1px solid var(--hairline)" }} className="pt-4">
+          <LocalUsage report={localReport} />
+        </div>
       </main>
 
       <footer
