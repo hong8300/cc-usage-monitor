@@ -1,0 +1,21 @@
+# パッケージング設定。
+# ⚠️ Phase 1 時点では**未検証**。実際の dmg 生成と署名確認は Phase 4 で行う。
+appId: dev.jun.cc-usage-monitor
+productName: Claude 使用量モニタ
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+  category: public.app-category.developer-tools
+  # メニューバー常駐アプリなので Dock には出さない。
+  extendInfo:
+    LSUIElement: true
+# Windows 対応はユーザー判断により後回し (docs/findings.md §6-3)。
+# Phase 4 で win/nsis/x64 を追加する。

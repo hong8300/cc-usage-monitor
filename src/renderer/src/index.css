@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/*
+ * カラートークン。
+ *
+ * ステータス3色は dataviz スキルの status palette をそのまま採用し、
+ * `scripts/validate_palette.js` で検証済み:
+ *   - CVD 分離   worst adjacent ΔE 11.3 (protan)  … 目標 ≥8   → PASS
+ *   - 通常視分離 worst adjacent ΔE 27.6           … 床  ≥15  → PASS
+ *   - ライト面の contrast: warning `#fab219` が 1.79 で 3:1 未満 → **relief 必須**
+ *
+ * relief の実装 = メーターには必ず「数値ラベル」と「状態テキスト」を併記する。
+ * これにより状態が色だけで伝わることは無くなる (skill の非交渉ルール)。
+ * ステータス色はライト/ダークで同一 (status palette は themed しない)。
+ */
+
+:root {
+  color-scheme: light;
+
+  --surface-1: #fcfcfb; /* chart surface */
+  --surface-page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --hairline: #e6e5e1;
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-critical: #d03b3b;
+  /* データ未取得。0% の緑と混同させないため彩度を持たせない。 */
+  --status-unknown: #898781;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+
+    --surface-1: #1a1a19;
+    --surface-page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --hairline: #2e2e2c;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --surface-1: #1a1a19;
+  --surface-page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --hairline: #2e2e2c;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+/* フレームレスウィンドウをドラッグできるようにする領域 */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/*
+ * メーター。
+ * dataviz marks-and-anatomy より:
+ *   - 塗りが severity を運び、未消費のトラックは **同じ色の薄いステップ**
+ *     (中立グレーではない) にして状態がバー全体で読めるようにする
+ *   - データ端は 4px 角丸、ベースライン側は角張らせる
+ *   - バーは細く (≤24px)
+ */
+.meter-track {
+  height: 10px;
+  border-radius: 5px;
+  background: color-mix(in oklab, var(--meter-color) 16%, var(--surface-1));
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  background: var(--meter-color);
+  /* ベースライン(左)は角張らせ、データ端(右)だけ 4px 丸める */
+  border-radius: 0 4px 4px 0;
+  transition: width 240ms ease-out;
+}
+
+/* 5分以上古い値は退色させる (指示書 §4) */
+.stale {
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
