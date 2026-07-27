@@ -21,7 +21,10 @@
 | JSONL の `message.usage` キー | 指示書の想定 **＋4個** 追加フィールドあり（後述） |
 | モデル ID の日付サフィックス | **現行モデルには存在しない**（`claude-opus-5` 等）→ 指示書 §3-B の前提が古い |
 | 重複排除の必要性 | **必須。実測で 89.4% の過大計上**が発生する |
-| statusLine 実 JSON ダンプ | **未取得**（後述・要ユーザー操作） |
+| statusLine 実 JSON ダンプ | ✅ **取得済み（14サンプル）。`rate_limits` の実在を確認** |
+| statusLine の `model.id` | ⚠️ **`claude-opus-5[1m]`** — JSONL 側の `claude-opus-5` と**表記が違う**（`[1m]` サフィックス付き） |
+| `used_percentage` の実値 | ⚠️ **`14.000000000000002`** という浮動小数点誤差つきの値が実際に出た → **表示前に必ず丸める** |
+| フィールドの安定性 | ⚠️ **同一セッション内で `workspace.repo` が出たり消えたりした**（14中4回のみ出現） |
 | Windows 側確認 | **未確認**（ユーザー判断により Mac 優先、後回し） |
 
 ---
@@ -116,30 +119,118 @@ uname -m           → arm64
 （`input_tokens + cache_creation_input_tokens + cache_read_input_tokens`）。**`output_tokens` を含まない。**
 → B 側で独自にコンテキスト率を出す場合は同じ式に揃える。
 
-### 2-3. 実 JSON ダンプ — **未取得**
+### 2-3. 実 JSON ダンプ — ✅ **取得済み**
 
-指示書 §0-3 は実機ダンプを必須としているが、`~/.claude/settings.json` への書き込みが
-Claude Code の権限クラシファイアによりブロックされたため、**このセッションでは取得できていない。**
+`scripts/phase0/enable-dump.js` → プロンプト実行 → `restore.js` で取得。
+**14 サンプル**を記録（`~/.cc-usage-monitor/phase0/statusline-dump.log.jsonl`）。
+`settings.json` は復元済み（バイト一致を検証、`statusLine` は元どおり不在）。
 
-取得用スクリプトは同梱済み（ユーザーが1コマンドで実行可能）:
+実際に届いた JSON（1サンプル、全文）:
+
+```json
+{
+  "session_id": "e01eaead-758b-4ea6-b7de-78022f444b34",
+  "transcript_path": "/Users/hong/.claude/projects/-Users-hong-project-2026-ClaudeLCheck/e01eaead-....jsonl",
+  "cwd": "/Users/hong/project/2026/ClaudeLCheck",
+  "prompt_id": "7ed12c08-cb75-4ddb-89dc-75825336f845",
+  "effort": { "level": "xhigh" },
+  "session_name": "フォルダ内のファイルを実装",
+  "model": { "id": "claude-opus-5[1m]", "display_name": "Opus 5 (1M context)" },
+  "workspace": { "current_dir": "...", "project_dir": "...", "added_dirs": [] },
+  "version": "2.1.220",
+  "output_style": { "name": "default" },
+  "cost": {
+    "total_cost_usd": 9.763019499999999,
+    "total_duration_ms": 1031377, "total_api_duration_ms": 522799,
+    "total_lines_added": 481, "total_lines_removed": 1
+  },
+  "context_window": {
+    "total_input_tokens": 462435, "total_output_tokens": 324,
+    "context_window_size": 1000000,
+    "current_usage": { "input_tokens": 1, "output_tokens": 324,
+      "cache_creation_input_tokens": 683, "cache_read_input_tokens": 461751 },
+    "used_percentage": 46, "remaining_percentage": 54
+  },
+  "exceeds_200k_tokens": true,
+  "fast_mode": false,
+  "thinking": { "enabled": true },
+  "rate_limits": {
+    "five_hour":  { "used_percentage": 13, "resets_at": 1785208200 },
+    "seven_day":  { "used_percentage": 1,  "resets_at": 1785787200 }
+  }
+}
+```
+
+#### 検証できたこと（指示書 §0-3 の目視確認項目）
+
+| 確認項目 | 実測結果 |
+|---|---|
+| `rate_limits` は存在するか | ✅ **14/14 サンプルすべてに存在**（この機体・この認証方式では確実に出る） |
+| キー名 | ✅ **`five_hour` / `seven_day`** — docs と一致 |
+| `used_percentage` の型 | ✅ `number`。**実測で `14.000000000000002` が出現**（後述） |
+| `resets_at` の形式 | ✅ **Unix epoch 秒**。10桁。下記で裏取り済み |
+
+**`resets_at` の裏取り（秒であることの証明）:**
+
+| 値 | 秒として解釈 | ミリ秒として解釈 |
+|---|---|---|
+| `1785208200` (five_hour) | 2026-07-28T03:10:00Z = **12:10 JST** | 1970-01-21（明らかに誤り） |
+| `1785787200` (seven_day) | 2026-08-03T20:00:00Z = **08-04 05:00 JST** | 1970-01-21（明らかに誤り） |
+
+計測時刻は 2026-07-28 07:58 JST。5時間枠のリセットが約4時間後、週次枠が約6.9日後 —
+**どちらもウィンドウ長と整合する。Unix 秒で確定。**
+
+#### ⚠️ 実測で判明した3つの落とし穴（docs だけでは分からなかった）
+
+**(1) `used_percentage` に浮動小数点誤差が乗る**
+
+14サンプル中2件で **`14.000000000000002`** が出現した。
+そのまま描画すると Tray に `5h 14.000000000000002%` と表示されてしまう。
+→ **表示前に必ず丸める**（`Math.round` または小数1桁固定）。生値は内部保持、表示は整形、と分離する。
+
+**(2) `model.id` に `[1m]` サフィックスが付く — JSONL 側と表記が違う**
+
+| 出所 | 値 |
+|---|---|
+| statusLine `model.id` | **`claude-opus-5[1m]`** |
+| JSONL `message.model` | `claude-opus-5` |
+
+同じモデルなのに**2系統で文字列が違う**。価格表照合の正規化は
+`[1m]` などの角括弧サフィックス除去を**先に**噛ませる必要がある（§3-4 の日付サフィックス除去と併せて実装）。
+
+**(3) フィールドは同一セッション内でも出たり消えたりする**
+
+`workspace.repo` を14サンプルで追跡した結果:
 
 ```
-node scripts/phase0/enable-dump.js   # バックアップ → statusLine を差し替え
-（Claude Code でプロンプトを1回投げる）
-node scripts/phase0/restore.js       # 復元（バイト一致を検証）
+#1 あり  #2〜#8 なし  #9 あり  #10 あり  #11 なし  #12 あり  #13 なし  #14 なし
 ```
 
-出力先: `~/.cc-usage-monitor/phase0/statusline-dump.json`
-毎ターンの履歴: `~/.cc-usage-monitor/phase0/statusline-dump.log.jsonl`
+このリポジトリには `origin` リモートが無く、docs の「no origin remote では absent」という記述からすると
+本来ずっと absent のはずだが、**実際には4回だけ現れた。**
 
-**未確認である以上の前提での実装方針（指示書 §0 末尾の要求どおり）:**
+→ **「一度取れたフィールドが次のターンで消える」ことが実際に起こる。**
+→ ブリッジが `latest.json` を毎回まるごと上書きし、UI がそれを素直に描画すると **UI がチラつく**。
+→ 対策: レンダラ側で**フィールド単位の last-known-good を保持**し、
+   欠損＝即クリアではなく「前回値 + 取得時刻」を保つ。
+   ただし指示書 §4 の表示規則どおり **5分以上古い値はグレーアウト**し、鮮度は必ず明示する。
+
+#### 実装方針（確定）
 
 1. `rate_limits`・各ウィンドウ・各フィールドを**すべて optional** として型定義する。
 2. 欠損時は `0%` ではなく **`—`** を表示し、理由をツールチップで示す（指示書 §4 表示規則）。
-3. `used_percentage` は `number` として受け、`0〜100` にクランプ。整数化しない。
-4. `resets_at` は `number`（Unix 秒）として受ける。**万一 ISO8601 文字列が来た場合も
-   パースできるよう両対応のパーサを噛ませる**（未確認項目に対するフォールバック）。
-5. 未知のキーは破棄せず保持し、デバッグ画面で raw JSON を確認できるようにする。
+3. `used_percentage` は `number` として受け `0〜100` にクランプ。**表示時に丸める**（落とし穴1）。
+4. `resets_at` は Unix 秒。**ミリ秒と誤認しないこと。** 万一 ISO8601 文字列が来た場合に備え両対応パーサを噛ませる。
+5. モデル ID 正規化は `[...]` サフィックス除去 → 完全一致 → 日付サフィックス除去 の順（落とし穴2）。
+6. フィールド単位の last-known-good + 取得時刻を保持（落とし穴3）。
+7. 未知のキーは破棄せず保持し、デバッグ画面で raw JSON を確認できるようにする。
+
+#### この機体では確認**できなかった**条件
+
+- **初回 API 応答前に `rate_limits` が absent になる状態**は再現できていない。
+  ダンプを仕掛けた時点で既に API 応答済みのセッションだったため、14サンプルすべてに存在した。
+  → docs の記述（「初回 API 応答後にのみ出現」）を信頼し、absent 分岐は実装する。
+- **API キー認証時に `rate_limits` が出ない**ことも未確認（この機体は OAuth 認証のみ）。
 
 ---
 
@@ -298,8 +389,10 @@ claude-opus-5    :   940 行
 
 | # | 未確認項目 | 理由 | 実装側のフォールバック |
 |---|---|---|---|
-| 1 | statusLine の**実 JSON** | `~/.claude/settings.json` への書き込みが権限ブロック。ユーザー実行用スクリプトを同梱済み | 全フィールド optional。`resets_at` は Unix秒/ISO8601 両対応パーサ。未知キーは保持して raw 表示 |
-| 2 | `rate_limits` が**この機体で実際に出るか** | 同上 | 欠損時は `—` + 理由ツールチップ（「Claude Code セッション未起動」/「初回 API 応答前」/「API キー認証では非提供」） |
+| 1 | ~~statusLine の実 JSON~~ | ✅ **解決済み**（§2-3、14サンプル取得） | — |
+| 2 | ~~`rate_limits` がこの機体で出るか~~ | ✅ **解決済み**（14/14 サンプルに存在） | — |
+| 2b | **初回 API 応答前**に `rate_limits` が absent になる状態 | ダンプ設置時点で既に応答済みのセッションだった | docs を信頼して absent 分岐を実装。欠損時は `—` + 理由ツールチップ（「Claude Code セッション未起動」/「初回 API 応答前」/「API キー認証では非提供」） |
+| 2c | **API キー認証時**に `rate_limits` が出ないこと | この機体は OAuth 認証のみ | 同上 |
 | 3 | **Windows** のパス・statusLine 起動方法 | ユーザー判断により後回し（Mac 優先） | パスは `os.homedir()` ベースで解決。Windows 固有分岐は Phase 4 で対応 |
 | 4 | Windows の**資格情報保存先** | 同上 | C 自体が既定 OFF のため現時点で影響なし |
 | 5 | `GET /api/oauth/usage` の**実レスポンス形状** | 非公開 API・C は既定 OFF のため未検証 | `seven_day_*` を含む未知キーを**汎用ループで表示**する設計（指示書 §3-C 準拠） |
@@ -312,9 +405,13 @@ claude-opus-5    :   940 行
 
 1. **`pricing.json` は cacheWrite を 5m / 1h で分離する。** §3-1 の実測により必須。
 2. **重複排除は `message.id` + `requestId`、最初の1件採用。** §3-2 で妥当性を実証（過大計上 +89.4%）。
-3. **モデル ID は完全一致 → 日付サフィックス除去の順で照合。** §3-4。未知モデルは UI に可視化。
+3. **モデル ID 正規化は `[...]` 除去 → 完全一致 → 日付サフィックス除去 の順。**
+   §2-3(2) で statusLine 側が `claude-opus-5[1m]`、JSONL 側が `claude-opus-5` と判明したため。未知モデルは UI に可視化。
 4. **`rate_limits` は全階層 optional。`five_hour` だけ来る状態を正規に扱う。** §2-1（docs 明記）。
-5. **`resets_at` は Unix 秒。** ミリ秒と誤解して 1970 年を表示しないこと。§2-1。
+5. **`resets_at` は Unix 秒。** ミリ秒と誤解して 1970 年を表示しないこと。§2-3 で実測裏取り済み。
+5b. **`used_percentage` は表示前に丸める。** §2-3(1) で `14.000000000000002` を実測。
+5c. **フィールド単位の last-known-good を保持する。** §2-3(3) で `workspace.repo` の明滅を実測。
+   欠損＝即クリアにすると UI がチラつく。ただし鮮度（◯分前 / 5分でグレーアウト）は必ず併記する。
 6. **A 由来（公式）と B 由来（推定）は UI で明確に分離。** B には「推定」バッジ。指示書 §3-B 準拠。
 7. **ブリッジは元コマンドのパススルーを実装する。** 現在は未設定だが将来設定されうる。§1。
 8. **Windows 対応は Phase 4 に先送り。Phase 1〜3 は macOS で完結させる。**（ユーザー判断）
