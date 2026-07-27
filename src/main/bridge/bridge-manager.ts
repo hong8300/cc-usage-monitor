@@ -32,6 +32,7 @@ import { BRIDGE_SCRIPT_VERSION, renderBridgeScript } from "./bridge-script.ts";
 interface StatusLineSetting {
   type?: string;
   command?: string;
+  refreshInterval?: number;
   [key: string]: unknown;
 }
 
@@ -118,7 +119,32 @@ function backupSettings(raw: string | null): void {
   fs.writeFileSync(path.join(SETTINGS_BACKUP_DIR, `settings-${stamp}.json`), payload);
 }
 
-export function enableBridge(): BridgeState {
+export interface EnableOptions {
+  /**
+   * Claude Code の `statusLine.refreshInterval` (秒)。
+   *
+   * 既定では statusLine はイベント駆動でしか走らないため、Claude Code が起動していても
+   * 操作していない間は使用量が更新されない。ここを設定すると N 秒ごとに再実行される。
+   * null なら設定しない (Claude Code 既定の挙動)。
+   */
+  refreshIntervalSeconds?: number | null;
+}
+
+function buildStatusLine(options: EnableOptions): StatusLineSetting {
+  const statusLine: StatusLineSetting = {
+    type: "command",
+    // パスに空白が含まれても壊れないよう必ず引用符で囲む。
+    command: `node "${BRIDGE_JS}"`,
+  };
+  const interval = options.refreshIntervalSeconds;
+  // Claude Code 側のスキーマは minimum 1。
+  if (typeof interval === "number" && interval >= 1) {
+    statusLine.refreshInterval = interval;
+  }
+  return statusLine;
+}
+
+export function enableBridge(options: EnableOptions = {}): BridgeState {
   try {
     fs.mkdirSync(APP_DIR, { recursive: true });
 
@@ -130,6 +156,8 @@ export function enableBridge(): BridgeState {
     if (isOurBridge(existing)) {
       // スクリプト本体は毎回書き直す (アプリ更新でブリッジが古いままになるのを防ぐ)。
       writeBridgeScript();
+      // refreshInterval だけは設定変更に追従させる。元コマンドの記録には触れない。
+      writeJsonAtomic(CLAUDE_SETTINGS, { ...settings, statusLine: buildStatusLine(options) });
       return getBridgeState();
     }
 
@@ -147,12 +175,7 @@ export function enableBridge(): BridgeState {
     writeBridgeScript();
 
     // `statusLine` 以外のキーは触らない。
-    // パスに空白が含まれても壊れないよう必ず引用符で囲む。
-    const next = {
-      ...settings,
-      statusLine: { type: "command", command: `node "${BRIDGE_JS}"` },
-    };
-    writeJsonAtomic(CLAUDE_SETTINGS, next);
+    writeJsonAtomic(CLAUDE_SETTINGS, { ...settings, statusLine: buildStatusLine(options) });
 
     return getBridgeState();
   } catch (err) {

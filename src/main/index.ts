@@ -1,10 +1,11 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BrowserWindow, app, ipcMain, screen, shell } from "electron";
+import { BrowserWindow, app, ipcMain, nativeTheme, screen, shell } from "electron";
 import { IPC } from "../shared/ipc.ts";
 import type { AppSettings } from "../shared/types.ts";
 import { bridgePaths, disableBridge, enableBridge, getBridgeState } from "./bridge/bridge-manager.ts";
 import { LocalUsageService } from "./jsonl/service.ts";
+import { ThresholdNotifier } from "./notifier.ts";
 import { loadSettings, saveSettings } from "./store.ts";
 import { TrayController } from "./tray.ts";
 import { UsageWatcher } from "./watcher.ts";
@@ -14,8 +15,10 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 let tray: TrayController | null = null;
 let panel: BrowserWindow | null = null;
 let settings: AppSettings = loadSettings();
+let localRefreshTimer: NodeJS.Timeout | null = null;
 const watcher = new UsageWatcher();
 const localUsage = new LocalUsageService();
+const notifier = new ThresholdNotifier();
 
 /** Tray 常駐アプリなので Dock には出さない (macOS)。 */
 function hideFromDock(): void {
@@ -89,10 +92,44 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
+/** 設定値を OS 側の状態 (テーマ・自動起動) とタイマーに反映する。 */
+function applySideEffects(previous: AppSettings | null): void {
+  nativeTheme.themeSource = settings.theme;
+
+  // Electron の API を毎回叩かず、変わったときだけ設定する。
+  if (previous === null || previous.launchAtLogin !== settings.launchAtLogin) {
+    app.setLoginItemSettings({ openAtLogin: settings.launchAtLogin, openAsHidden: true });
+  }
+
+  if (previous === null || previous.localRefreshSeconds !== settings.localRefreshSeconds) {
+    if (localRefreshTimer) clearInterval(localRefreshTimer);
+    localRefreshTimer = null;
+    // 0 ならファイル監視だけに任せる。監視の取りこぼしに対する保険なので必須ではない。
+    if (settings.localRefreshSeconds > 0) {
+      localRefreshTimer = setInterval(
+        () => localUsage.refresh(),
+        settings.localRefreshSeconds * 1000,
+      );
+    }
+  }
+
+  // ブリッジが有効なら refreshInterval の変更を settings.json に反映する。
+  const intervalChanged =
+    previous !== null && previous.statusLineRefreshSeconds !== settings.statusLineRefreshSeconds;
+  if (intervalChanged && getBridgeState().status === "enabled") {
+    broadcast(
+      IPC.bridgeStateChanged,
+      enableBridge({ refreshIntervalSeconds: settings.statusLineRefreshSeconds }),
+    );
+  }
+}
+
 function applySettings(next: AppSettings): AppSettings {
+  const previous = settings;
   settings = next;
   saveSettings(settings);
   tray?.updateSettings(settings);
+  applySideEffects(previous);
   broadcast(IPC.settingsChanged, settings);
   return settings;
 }
@@ -105,7 +142,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.refreshLocalReport, () => localUsage.refresh());
 
   ipcMain.handle(IPC.enableBridge, () => {
-    const state = enableBridge();
+    const state = enableBridge({ refreshIntervalSeconds: settings.statusLineRefreshSeconds });
     broadcast(IPC.bridgeStateChanged, state);
     return state;
   });
@@ -141,8 +178,8 @@ if (!app.requestSingleInstanceLock()) {
     tray = new TrayController(settings, {
       onToggleWindow: togglePanel,
       onOpenSettings: () => {
-        togglePanel();
-        broadcast("ui:openSettings", null);
+        if (!panel?.isVisible()) togglePanel();
+        broadcast(IPC.openSettings, null);
       },
       onSetTrayMode: (mode) => applySettings({ ...settings, tray: { ...settings.tray, mode } }),
       onQuit: () => app.quit(),
@@ -151,9 +188,11 @@ if (!app.requestSingleInstanceLock()) {
 
     watcher.onSnapshot((snapshot) => {
       tray?.update(snapshot);
+      notifier.check(snapshot, settings);
       broadcast(IPC.snapshotChanged, snapshot);
     });
     watcher.start();
+    applySideEffects(null);
     tray.update(watcher.current());
 
     localUsage.onReport((report) => broadcast(IPC.localReportChanged, report));
@@ -165,6 +204,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on("window-all-closed", () => {});
 
   app.on("before-quit", () => {
+    if (localRefreshTimer) clearInterval(localRefreshTimer);
     watcher.stop();
     localUsage.stop();
     tray?.destroy();

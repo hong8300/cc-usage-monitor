@@ -5,10 +5,18 @@ import {
   parseResetsAt,
   severityFor,
 } from "../../shared/normalize.ts";
-import { STALE_AFTER_MS, type BridgeState, type UsageSnapshot } from "../../shared/types.ts";
+import type { AppPaths } from "../../shared/ipc.ts";
+import {
+  STALE_AFTER_MS,
+  type AppSettings,
+  type BridgeState,
+  type UsageSnapshot,
+} from "../../shared/types.ts";
 import type { LocalUsageReport } from "../../shared/usage-types.ts";
+import { DailyChart } from "./components/DailyChart.tsx";
 import { LocalUsage } from "./components/LocalUsage.tsx";
 import { Meter } from "./components/Meter.tsx";
+import { Settings } from "./components/Settings.tsx";
 
 /** 1秒ごとに再描画するための now。カウントダウンと鮮度表示に使う。 */
 function useNow(intervalMs = 1000): number {
@@ -24,6 +32,9 @@ export function App() {
   const [snapshot, setSnapshot] = useState<UsageSnapshot | null>(null);
   const [bridge, setBridge] = useState<BridgeState | null>(null);
   const [localReport, setLocalReport] = useState<LocalUsageReport | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
+  const [paths, setPaths] = useState<AppPaths | null>(null);
+  const [view, setView] = useState<"usage" | "settings">("usage");
   const [busy, setBusy] = useState(false);
   const now = useNow();
 
@@ -31,14 +42,33 @@ export function App() {
     void window.monitor.getSnapshot().then(setSnapshot);
     void window.monitor.getBridgeState().then(setBridge);
     void window.monitor.getLocalReport().then(setLocalReport);
+    void window.monitor.getSettings().then(setSettings);
+    void window.monitor.getPaths().then(setPaths);
     const offSnapshot = window.monitor.onSnapshot(setSnapshot);
     const offBridge = window.monitor.onBridgeState(setBridge);
     const offLocal = window.monitor.onLocalReport(setLocalReport);
+    const offSettings = window.monitor.onSettings(setSettings);
+    const offOpenSettings = window.monitor.onOpenSettings(() => setView("settings"));
     return () => {
       offSnapshot();
       offBridge();
       offLocal();
+      offSettings();
+      offOpenSettings();
     };
+  }, []);
+
+  // テーマは main 側 (nativeTheme) が決めるが、レンダラの CSS 変数にも反映させる。
+  useEffect(() => {
+    if (!settings) return;
+    const root = document.documentElement;
+    if (settings.theme === "system") root.removeAttribute("data-theme");
+    else root.setAttribute("data-theme", settings.theme);
+  }, [settings]);
+
+  const updateSettings = useCallback(async (next: AppSettings) => {
+    setSettings(next); // 楽観的更新。main から確定値が返ってきたら上書きされる。
+    setSettings(await window.monitor.setSettings(next));
   }, []);
 
   const toggleBridge = useCallback(async () => {
@@ -88,9 +118,43 @@ export function App() {
             {stale && " · 古い可能性あり"}
           </p>
         </div>
-        <SourceBadge bridge={bridge} />
+        <div className="no-drag flex items-center gap-1.5">
+          <SourceBadge bridge={bridge} />
+          <button
+            type="button"
+            onClick={() => setView(view === "usage" ? "settings" : "usage")}
+            className="rounded px-1.5 py-0.5 text-[11px]"
+            style={{
+              background: view === "settings" ? "var(--surface-page)" : "var(--surface-1)",
+              color: "var(--text-secondary)",
+              border: "1px solid var(--hairline)",
+            }}
+            aria-label={view === "usage" ? "設定を開く" : "使用量に戻る"}
+          >
+            {view === "usage" ? "設定" : "戻る"}
+          </button>
+        </div>
       </header>
 
+      {view === "settings" ? (
+        <main className="flex-1 overflow-y-auto px-4 py-4">
+          {settings ? (
+            <Settings
+              settings={settings}
+              bridge={bridge}
+              paths={paths}
+              busy={busy}
+              onChange={(next) => void updateSettings(next)}
+              onToggleBridge={toggleBridge}
+              onReveal={(target) => void window.monitor.revealPath(target)}
+            />
+          ) : (
+            <p className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+              読み込み中…
+            </p>
+          )}
+        </main>
+      ) : (
       <main className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
         <Meter
           label="セッション枠（5時間）"
@@ -120,17 +184,21 @@ export function App() {
 
         {/* ここから下はローカルログ由来の推定値。上の公式値と区切り線で明確に分ける
             (指示書 §3-B: A 由来と B 由来を視覚的に区別すること)。 */}
-        <div style={{ borderTop: "1px solid var(--hairline)" }} className="pt-4">
+        <div style={{ borderTop: "1px solid var(--hairline)" }} className="space-y-5 pt-4">
           <LocalUsage report={localReport} />
+          {localReport && <DailyChart daily={localReport.daily} />}
         </div>
       </main>
+      )}
 
-      <footer
-        className="no-drag px-4 py-3"
-        style={{ borderTop: "1px solid var(--hairline)" }}
-      >
-        <BridgeToggle bridge={bridge} busy={busy} onToggle={toggleBridge} />
-      </footer>
+      {view === "usage" && (
+        <footer
+          className="no-drag px-4 py-3"
+          style={{ borderTop: "1px solid var(--hairline)" }}
+        >
+          <BridgeToggle bridge={bridge} busy={busy} onToggle={toggleBridge} />
+        </footer>
+      )}
     </div>
   );
 }

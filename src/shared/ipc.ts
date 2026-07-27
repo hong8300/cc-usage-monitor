@@ -20,6 +20,8 @@ export const IPC = {
   setSettings: "app:setSettings",
   settingsChanged: "app:settingsChanged",
   revealPath: "app:revealPath",
+  /** Tray メニューの「設定…」から設定画面を開かせる。 */
+  openSettings: "ui:openSettings",
 } as const;
 
 export interface AppPaths {
@@ -52,4 +54,5 @@ export interface MonitorApi {
 
   getPaths(): Promise<AppPaths>;
   revealPath(target: string): Promise<void>;
+  onOpenSettings(listener: () => void): () => void;
 }

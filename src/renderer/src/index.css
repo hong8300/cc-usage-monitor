@@ -29,6 +29,13 @@
   --status-critical: #d03b3b;
   /* データ未取得。0% の緑と混同させないため彩度を持たせない。 */
   --status-unknown: #898781;
+
+  /*
+   * 履歴チャートの系列色 (categorical slot 1)。
+   * ここが表すのは「状態」ではなく「量」なので、状態色を流用しない。
+   * 両モードとも validate_palette.js で全チェック PASS。
+   */
+  --series-1: #2a78d6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -41,6 +48,9 @@
     --text-secondary: #c3c2b7;
     --text-muted: #898781;
     --hairline: #2e2e2c;
+
+    /* 同じ青のダーク面向けステップ (別パレットではない) */
+    --series-1: #3987e5;
   }
 }
 
@@ -53,6 +63,9 @@
   --text-secondary: #c3c2b7;
   --text-muted: #898781;
   --hairline: #2e2e2c;
+
+  /* 同じ青のダーク面向けステップ (別パレットではない) */
+  --series-1: #3987e5;
 }
 
 html,

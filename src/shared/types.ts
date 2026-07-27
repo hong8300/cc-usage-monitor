@@ -114,12 +114,49 @@ export interface TrayDisplaySettings {
   mode: "icon" | "percent" | "both";
 }
 
+export interface NotificationSettings {
+  enabled: boolean;
+  /**
+   * 通知する消費率 (%)。指示書 §4 の既定は 80 / 95。
+   * Tray の色分け閾値 (50/80) とは別物なので混同しないこと。
+   */
+  thresholds: number[];
+  watchFiveHour: boolean;
+  watchSevenDay: boolean;
+}
+
 export interface AppSettings {
   tray: TrayDisplaySettings;
+  notifications: NotificationSettings;
+  /** ログイン時に自動起動する */
+  launchAtLogin: boolean;
+  theme: "system" | "light" | "dark";
+  /**
+   * ローカル集計の定期再スキャン間隔 (秒)。0 ならファイル監視のみに任せる。
+   * 監視が取りこぼした場合の保険。
+   */
+  localRefreshSeconds: number;
+  /**
+   * Claude Code の `statusLine.refreshInterval` に渡す秒数。null なら設定しない。
+   *
+   * 既定ではイベント駆動でしか statusLine が走らないため、Claude Code が起動していても
+   * 操作していない間は使用量が更新されない。ここを設定すると N 秒ごとに再実行される。
+   */
+  statusLineRefreshSeconds: number | null;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   tray: { mode: "both" },
+  notifications: {
+    enabled: true,
+    thresholds: [80, 95],
+    watchFiveHour: true,
+    watchSevenDay: true,
+  },
+  launchAtLogin: false,
+  theme: "system",
+  localRefreshSeconds: 300,
+  statusLineRefreshSeconds: null,
 };
 
 /** 値が古いとみなす閾値 (指示書 §4: 5分以上古い場合はグレーアウト)。 */
