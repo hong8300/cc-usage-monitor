@@ -24,6 +24,8 @@ export interface TrayCallbacks {
   onToggleWindow: () => void;
   onOpenSettings: () => void;
   onSetTrayMode: (mode: AppSettings["tray"]["mode"]) => void;
+  onToggleMini: () => void;
+  isMiniEnabled: () => boolean;
   onQuit: () => void;
 }
 
@@ -126,6 +128,12 @@ export class TrayController {
   private menu(): Menu {
     return Menu.buildFromTemplate([
       { label: "パネルを開く", click: () => this.callbacks.onToggleWindow() },
+      {
+        label: "ミニウィンドウを表示",
+        type: "checkbox",
+        checked: this.callbacks.isMiniEnabled(),
+        click: () => this.callbacks.onToggleMini(),
+      },
       { label: "設定…", click: () => this.callbacks.onOpenSettings() },
       { type: "separator" },
       {

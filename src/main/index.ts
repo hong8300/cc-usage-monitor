@@ -5,6 +5,7 @@ import { IPC } from "../shared/ipc.ts";
 import type { AppSettings } from "../shared/types.ts";
 import { bridgePaths, disableBridge, enableBridge, getBridgeState } from "./bridge/bridge-manager.ts";
 import { LocalUsageService } from "./jsonl/service.ts";
+import { MiniWindow } from "./mini-window.ts";
 import { ThresholdNotifier } from "./notifier.ts";
 import { loadSettings, saveSettings } from "./store.ts";
 import { TrayController } from "./tray.ts";
@@ -19,6 +20,18 @@ let localRefreshTimer: NodeJS.Timeout | null = null;
 const watcher = new UsageWatcher();
 const localUsage = new LocalUsageService();
 const notifier = new ThresholdNotifier();
+
+const PRELOAD = path.join(dirname, "../preload/index.mjs");
+const RENDERER_FILE = path.join(dirname, "../renderer/index.html");
+
+const mini = new MiniWindow({
+  preloadPath: PRELOAD,
+  rendererUrl: process.env.ELECTRON_RENDERER_URL,
+  rendererFile: RENDERER_FILE,
+  // ドラッグ移動のたびに settings を書くと I/O が増えるが、
+  // 移動完了時にしか飛ばないイベントなので実用上は問題ない。
+  onMoved: (x, y) => applySettings({ ...settings, mini: { ...settings.mini, x, y } }),
+});
 
 /** Tray 常駐アプリなので Dock には出さない (macOS)。 */
 function hideFromDock(): void {
@@ -38,7 +51,7 @@ function createPanel(): BrowserWindow {
     alwaysOnTop: true,
     vibrancy: process.platform === "darwin" ? "under-window" : undefined,
     webPreferences: {
-      preload: path.join(dirname, "../preload/index.mjs"),
+      preload: PRELOAD,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
@@ -54,7 +67,7 @@ function createPanel(): BrowserWindow {
   if (devServer) {
     void window.loadURL(devServer);
   } else {
-    void window.loadFile(path.join(dirname, "../renderer/index.html"));
+    void window.loadFile(RENDERER_FILE);
   }
 
   return window;
@@ -92,9 +105,17 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-/** 設定値を OS 側の状態 (テーマ・自動起動) とタイマーに反映する。 */
+/** 設定値を OS 側の状態 (テーマ・自動起動・小窓) とタイマーに反映する。 */
 function applySideEffects(previous: AppSettings | null): void {
   nativeTheme.themeSource = settings.theme;
+
+  // 位置だけの変更 (ドラッグ移動) で作り直さない。無限ループになる。
+  const miniChanged =
+    previous === null ||
+    previous.mini.enabled !== settings.mini.enabled ||
+    previous.mini.alwaysOnTop !== settings.mini.alwaysOnTop ||
+    previous.mini.visibleOnAllWorkspaces !== settings.mini.visibleOnAllWorkspaces;
+  if (miniChanged) mini.sync(settings);
 
   // Electron の API を毎回叩かず、変わったときだけ設定する。
   if (previous === null || previous.launchAtLogin !== settings.launchAtLogin) {
@@ -182,6 +203,12 @@ if (!app.requestSingleInstanceLock()) {
         broadcast(IPC.openSettings, null);
       },
       onSetTrayMode: (mode) => applySettings({ ...settings, tray: { ...settings.tray, mode } }),
+      onToggleMini: () =>
+        applySettings({
+          ...settings,
+          mini: { ...settings.mini, enabled: !settings.mini.enabled },
+        }),
+      isMiniEnabled: () => settings.mini.enabled,
       onQuit: () => app.quit(),
     });
     tray.create();
@@ -207,6 +234,7 @@ if (!app.requestSingleInstanceLock()) {
     if (localRefreshTimer) clearInterval(localRefreshTimer);
     watcher.stop();
     localUsage.stop();
+    mini.destroy();
     tray?.destroy();
   });
 }

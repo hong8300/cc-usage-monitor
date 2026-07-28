@@ -93,6 +93,14 @@ body {
 }
 
 /*
+ * ミニウィンドウは transparent + frameless なので、
+ * body の背景を透かして角丸を効かせる (中身側で背景と枠を描く)。
+ */
+body.mini {
+  background: transparent;
+}
+
+/*
  * メーター。
  * dataviz marks-and-anatomy より:
  *   - 塗りが severity を運び、未消費のトラックは **同じ色の薄いステップ**

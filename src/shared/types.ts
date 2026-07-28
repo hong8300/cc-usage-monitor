@@ -125,8 +125,26 @@ export interface NotificationSettings {
   watchSevenDay: boolean;
 }
 
+/**
+ * ミニウィンドウ（デスクトップに常駐する小窓）の設定。
+ *
+ * メニューバーの表示とは独立した機能。5時間枠と週次枠のメーターだけを出し、
+ * 作業中ずっと見えるようにする。
+ */
+export interface MiniWindowSettings {
+  enabled: boolean;
+  /** 他のアプリより常に手前に出すか。 */
+  alwaysOnTop: boolean;
+  /** 全デスクトップ (Mission Control のすべての操作スペース) に表示するか。 */
+  visibleOnAllWorkspaces: boolean;
+  /** 前回の位置。null なら画面右上に寄せる。 */
+  x: number | null;
+  y: number | null;
+}
+
 export interface AppSettings {
   tray: TrayDisplaySettings;
+  mini: MiniWindowSettings;
   notifications: NotificationSettings;
   /** ログイン時に自動起動する */
   launchAtLogin: boolean;
@@ -147,6 +165,13 @@ export interface AppSettings {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   tray: { mode: "both" },
+  mini: {
+    enabled: false,
+    alwaysOnTop: true,
+    visibleOnAllWorkspaces: false,
+    x: null,
+    y: null,
+  },
   notifications: {
     enabled: true,
     thresholds: [80, 95],

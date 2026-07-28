@@ -147,6 +147,43 @@ export function Settings({
         </div>
       </section>
 
+      {/* --- ミニウィンドウ --- */}
+      <section>
+        <h2 className="mb-1 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>
+          ミニウィンドウ
+        </h2>
+        <div style={{ borderTop: "1px solid var(--hairline)" }}>
+          <Row
+            label="デスクトップに常時表示"
+            hint="5時間枠と週次枠のメーターだけの小窓を出します。メニューバーの表示とは別の機能です。ドラッグで移動でき、位置は記憶されます。"
+          >
+            <Toggle
+              checked={settings.mini.enabled}
+              onChange={(enabled) => patch({ mini: { ...settings.mini, enabled } })}
+            />
+          </Row>
+          <Row label="常に最前面" hint="他のアプリを全画面にしても手前に出し続けます。">
+            <Toggle
+              checked={settings.mini.alwaysOnTop}
+              disabled={!settings.mini.enabled}
+              onChange={(alwaysOnTop) => patch({ mini: { ...settings.mini, alwaysOnTop } })}
+            />
+          </Row>
+          <Row
+            label="すべての操作スペースに表示"
+            hint="Mission Control でデスクトップを切り替えても付いてきます。"
+          >
+            <Toggle
+              checked={settings.mini.visibleOnAllWorkspaces}
+              disabled={!settings.mini.enabled}
+              onChange={(visibleOnAllWorkspaces) =>
+                patch({ mini: { ...settings.mini, visibleOnAllWorkspaces } })
+              }
+            />
+          </Row>
+        </div>
+      </section>
+
       {/* --- 通知 --- */}
       <section>
         <h2 className="mb-1 text-[11px] font-medium" style={{ color: "var(--text-secondary)" }}>

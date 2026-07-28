@@ -10,13 +10,17 @@ import { APP_SETTINGS_JSON } from "./paths.ts";
 export function loadSettings(): AppSettings {
   try {
     const parsed = JSON.parse(fs.readFileSync(APP_SETTINGS_JSON, "utf8")) as Partial<AppSettings>;
+    // ネストしたオブジェクトは既定値とマージする。
+    // 設定項目を後から増やしたとき、古い設定ファイルで undefined にならないようにするため。
     return {
       ...DEFAULT_APP_SETTINGS,
       ...parsed,
       tray: { ...DEFAULT_APP_SETTINGS.tray, ...parsed.tray },
+      mini: { ...DEFAULT_APP_SETTINGS.mini, ...parsed.mini },
+      notifications: { ...DEFAULT_APP_SETTINGS.notifications, ...parsed.notifications },
     };
   } catch {
-    return { ...DEFAULT_APP_SETTINGS, tray: { ...DEFAULT_APP_SETTINGS.tray } };
+    return structuredClone(DEFAULT_APP_SETTINGS);
   }
 }
 

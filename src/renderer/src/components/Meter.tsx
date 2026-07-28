@@ -37,6 +37,8 @@ export interface MeterProps {
   /** 取得できない理由。未取得時にツールチップで示す (指示書 §4)。 */
   unavailableReason?: string;
   stale?: boolean;
+  /** ミニウィンドウ用の詰めたレイアウト。 */
+  compact?: boolean;
 }
 
 export function Meter({
@@ -46,6 +48,7 @@ export function Meter({
   resetHint,
   unavailableReason,
   stale = false,
+  compact = false,
 }: MeterProps) {
   const available = percent !== null && severity !== null;
   const color = severity ? STATUS_VAR[severity] : "var(--status-unknown)";
@@ -53,7 +56,10 @@ export function Meter({
   return (
     <section className={stale ? "stale" : undefined}>
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-[13px] font-medium" style={{ color: "var(--text-secondary)" }}>
+        <h2
+          className={compact ? "text-[11px] font-medium" : "text-[13px] font-medium"}
+          style={{ color: "var(--text-secondary)" }}
+        >
           {label}
         </h2>
 
@@ -68,13 +74,20 @@ export function Meter({
               {STATUS_GLYPH[severity]} {STATUS_LABEL[severity]}
             </span>
             {/* 数値は大きめ・proportional figures (単独の大きな値なので tabular にしない) */}
-            <span className="text-[19px] font-semibold" style={{ color: "var(--text-primary)" }}>
+            <span
+              className={compact ? "text-[16px] font-semibold" : "text-[19px] font-semibold"}
+              style={{ color: "var(--text-primary)" }}
+            >
               {Math.round(percent)}%
             </span>
           </div>
         ) : (
           <span
-            className="cursor-default text-[19px] font-semibold"
+            className={
+              compact
+                ? "cursor-default text-[16px] font-semibold"
+                : "cursor-default text-[19px] font-semibold"
+            }
             style={{ color: "var(--text-muted)" }}
             title={unavailableReason ?? "データ未取得"}
           >
