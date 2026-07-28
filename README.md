@@ -4,16 +4,16 @@ Claude Code の使用量を、ブラウザで claude.ai を開かずに **メニ
 
 **メニューバー** — 消費率が常に見えます。色は 〜50% 緑 / 〜80% 橙 / 80%〜 赤。
 
-<img src="docs/images/menubar.png" alt="メニューバーに 5h 70% · 7d 7% と表示されている" width="248">
+<img src="docs/images/menubar.png" alt="メニューバーに 5h 71% · 7d 7% と表示されている" width="156">
 
 **ミニウィンドウ** — デスクトップに置いておける小窓。ドラッグで移動できます。
 
-<img src="docs/images/mini.png" alt="セッション枠 70%（注意）と週次枠 7%（余裕）を表示するミニウィンドウ" width="282">
+<img src="docs/images/mini.png" alt="セッション枠 71%（注意）と週次枠 7%（余裕）を表示するミニウィンドウ" width="328">
 
 **パネル** — メニューバーのアイコンをクリックすると開きます。下にスクロールすると
 モデル別内訳・トークン内訳・直近7日のバーチャートが続きます。
 
-<img src="docs/images/panel.png" alt="使用量パネル。セッション枠 70%、週次枠 7%、今日の推定コスト $216" width="400">
+<img src="docs/images/panel.png" alt="使用量パネル。セッション枠 71%、週次枠 7%、今日の推定コスト $231" width="512">
 
 見られるもの:
 
