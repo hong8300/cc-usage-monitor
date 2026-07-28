@@ -144,6 +144,15 @@ export function Settings({
               ]}
             />
           </Row>
+          <Row
+            label="他をクリックしたらパネルを閉じる"
+            hint="OFF にすると、数字を見ながら別のウィンドウを操作できます。閉じるときはメニューバーのアイコンをもう一度クリックしてください。"
+          >
+            <Toggle
+              checked={settings.panel.autoHide}
+              onChange={(autoHide) => patch({ panel: { ...settings.panel, autoHide } })}
+            />
+          </Row>
         </div>
       </section>
 

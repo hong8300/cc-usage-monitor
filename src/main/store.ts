@@ -16,6 +16,7 @@ export function loadSettings(): AppSettings {
       ...DEFAULT_APP_SETTINGS,
       ...parsed,
       tray: { ...DEFAULT_APP_SETTINGS.tray, ...parsed.tray },
+      panel: { ...DEFAULT_APP_SETTINGS.panel, ...parsed.panel },
       mini: { ...DEFAULT_APP_SETTINGS.mini, ...parsed.mini },
       notifications: { ...DEFAULT_APP_SETTINGS.notifications, ...parsed.notifications },
     };

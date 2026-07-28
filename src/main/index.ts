@@ -59,7 +59,9 @@ function createPanel(): BrowserWindow {
   });
 
   // フォーカスが外れたらポップオーバーらしく隠す。
+  // 設定で切れるようにしてある — 数字を見ながら別のウィンドウを操作したい場合があるため。
   window.on("blur", () => {
+    if (!settings.panel.autoHide) return;
     if (!window.webContents.isDevToolsOpened()) window.hide();
   });
 
@@ -191,6 +193,13 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on("second-instance", () => togglePanel());
+
+  // macOS で `open` や Finder からもう一度起動されたとき。
+  // このケースは新しいプロセスを作らないので `second-instance` は発火しない。
+  // 何も起きないと「起動したのに反応がない」と見えるので、パネルを出す。
+  app.on("activate", () => {
+    if (!panel?.isVisible()) togglePanel();
+  });
 
   void app.whenReady().then(() => {
     hideFromDock();

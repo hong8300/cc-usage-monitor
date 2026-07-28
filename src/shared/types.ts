@@ -142,8 +142,19 @@ export interface MiniWindowSettings {
   y: number | null;
 }
 
+export interface PanelSettings {
+  /**
+   * フォーカスが外れたらパネルを自動で閉じるか。
+   *
+   * true だとメニューバーのポップオーバーらしい挙動になるが、
+   * 数字を見ながら別のウィンドウを操作したいときに消えてしまう。
+   */
+  autoHide: boolean;
+}
+
 export interface AppSettings {
   tray: TrayDisplaySettings;
+  panel: PanelSettings;
   mini: MiniWindowSettings;
   notifications: NotificationSettings;
   /** ログイン時に自動起動する */
@@ -165,6 +176,7 @@ export interface AppSettings {
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
   tray: { mode: "both" },
+  panel: { autoHide: true },
   mini: {
     enabled: false,
     alwaysOnTop: true,
