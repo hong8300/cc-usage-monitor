@@ -4,7 +4,7 @@ Claude Code の使用量を、ブラウザで claude.ai を開かずに **メニ
 
 **メニューバー** — 消費率が常に見えます。色は 〜50% 緑 / 〜80% 橙 / 80%〜 赤。
 
-<img src="docs/images/menubar.png" alt="メニューバーに 5h 71% · 7d 7% と表示されている" width="156">
+<img src="docs/images/menubar.png" alt="メニューバーに 5h 73% · 7d 7% と表示されている" width="158">
 
 **ミニウィンドウ** — デスクトップに置いておける小窓。ドラッグで移動できます。
 
