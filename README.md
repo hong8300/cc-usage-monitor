@@ -14,8 +14,9 @@ Claude の使用量（サブスクリプション枠の消費率）を、ブラ�
 | 0 | 実機調査 | ✅ 完了 — [`docs/findings.md`](docs/findings.md) |
 | 1 | Electron 雛形 + Tray + statusLine ブリッジ | ✅ 完了 |
 | 2 | ローカル JSONL 集計（トークン・推定コスト） | ✅ 完了 |
-| 3 | 通知・設定・履歴グラフ | 未着手 |
-| 4 | パッケージング（+ Windows 対応） | 未着手 |
+| 3 | 通知・設定・履歴グラフ | ✅ 完了 |
+| 4 | パッケージング（macOS） | ✅ 完了 |
+| 4b | Windows 対応 | 後回し（ユーザー判断） |
 | 5 | （任意）OAuth モード | 未着手・既定 OFF 予定 |
 
 Windows 対応はユーザー判断により後回し。現在は macOS のみを対象とする。
@@ -36,10 +37,21 @@ npm run dev     # 開発起動
 
 ```sh
 npm run typecheck   # 型検査 (main / renderer)
-npm test            # 正規化ロジックとブリッジの回帰テスト
+npm test            # 正規化・ブリッジ・集計・通知の回帰テスト
 npm run build       # 本番ビルド
-npm run dist:mac    # dmg 生成（⚠️ Phase 4 で検証予定・現時点では未検証）
+npm run icon        # build/icon.png を再生成
+npm run dist:mac    # release/cc-usage-monitor-<version>-arm64.dmg を生成
 ```
+
+### 配布物について
+
+`npm run dist:mac` が作る dmg は **未署名**です（このマシンに Developer ID 証明書が無いため）。
+自分のマシンで使う分には問題ありませんが、ダウンロードして配ると Gatekeeper に止められます。
+配布する場合は Developer ID を用意して `electron-builder.yml` の `mac.identity` を設定し、
+公証（notarization）も通してください。
+
+アイコンはバイナリを直接置かず `scripts/generate-icon.ts` が生成します。
+図案は指示書 §4 の閾値（〜50% 緑 / 〜80% 橙 / 80%〜 赤）をそのままリングに色分けしたものです。
 
 ---
 
@@ -91,6 +103,10 @@ Claude Code ──stdin JSON──▶ ~/.cc-usage-monitor/bridge.js
 - `<synthetic>` / API エラー / `requestId` 欠損の行は除外
 - 価格表に無いモデルは **0 円にせず「価格不明」として UI に出す**（価格表の更新漏れを検知するため）
 - 常駐アプリなので**増分読み**（ファイルごとにバイトオフセットを保持し追記分だけ読む）
+- サブエージェントの transcript（`<session>/subagents/agent-*.jsonl`）も集計対象。
+  親トランスクリプトとの ID 重複は 0 件で、独立した実消費であることを確認済み
+- 監視するのは `.jsonl` のみ。`~/.claude/projects` 配下には `memory/*.md` など
+  集計に無関係なファイルもあるため、そこにはハンドルを持たない
 
 ### 価格表の更新
 

@@ -36,8 +36,8 @@ function chunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, typeAndData, crc]);
 }
 
-/** RGBA バッファを PNG にエンコードする。 */
-function encodePng(width: number, height: number, rgba: Buffer): Buffer {
+/** RGBA バッファを PNG にエンコードする。アプリアイコン生成でも使う。 */
+export function encodePng(width: number, height: number, rgba: Buffer): Buffer {
   const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
   const ihdr = Buffer.alloc(13);

@@ -1,21 +1,49 @@
-# パッケージング設定。
-# ⚠️ Phase 1 時点では**未検証**。実際の dmg 生成と署名確認は Phase 4 で行う。
+# パッケージング設定 (Phase 4)。
+#
+# Windows 対応はユーザー判断により後回し (docs/findings.md §6-3)。
+# 現時点では macOS / arm64 の dmg のみを対象にする。
+
 appId: dev.jun.cc-usage-monitor
 productName: Claude 使用量モニタ
+
 directories:
   output: release
   buildResources: build
+
+# out/ は electron-vite の成果物。node_modules の本番依存 (chokidar) は
+# electron-builder が自動で拾う。
 files:
   - out/**/*
   - package.json
+
+# 成果物のファイル名は ASCII に寄せる (productName が日本語のため)。
+artifactName: ${name}-${version}-${arch}.${ext}
+
 mac:
   target:
     - target: dmg
       arch:
         - arm64
   category: public.app-category.developer-tools
-  # メニューバー常駐アプリなので Dock には出さない。
+  icon: build/icon.png
+  # メニューバー常駐アプリなので Dock とアプリスイッチャーには出さない。
   extendInfo:
     LSUIElement: true
-# Windows 対応はユーザー判断により後回し (docs/findings.md §6-3)。
-# Phase 4 で win/nsis/x64 を追加する。
+  # 署名証明書が無い環境なので明示的に無署名にする。
+  # これを省くと ad-hoc 署名を試みてビルドが不安定になる。
+  # 配布するときは Developer ID を用意して identity を設定し、公証も通すこと。
+  identity: null
+  # 完全ローカル動作でネットワークを一切使わないため、
+  # ネットワーク関連の entitlement は要求しない。
+  hardenedRuntime: false
+
+dmg:
+  # ドラッグ&ドロップの標準レイアウト
+  contents:
+    - x: 140
+      y: 180
+      type: file
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications

@@ -6,3 +6,5 @@ release/
 *.log
 .vite/
 *.tsbuildinfo
+release/
+build/*.icns

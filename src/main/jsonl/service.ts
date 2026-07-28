@@ -30,6 +30,16 @@ export class LocalUsageService {
       // 存在しないルートを渡しても落ちないようにする。
       ignorePermissionErrors: true,
       awaitWriteFinish: { stabilityThreshold: 300, pollInterval: 100 },
+      // `.jsonl` 以外は監視しない。
+      // ~/.claude/projects 配下には memory/*.md など集計に無関係なファイルもあり、
+      // ディレクトリごと監視すると読む必要のないユーザーファイルにまでハンドルを持つ。
+      // 触る範囲は必要最小限に留める (指示書 §6)。
+      ignored: (targetPath, stats) => {
+        if (stats?.isDirectory()) return false;
+        if (stats?.isFile()) return !targetPath.endsWith(".jsonl");
+        // stats がまだ無い段階ではディレクトリの可能性があるので通す。
+        return false;
+      },
     });
 
     const onChange = (file: string) => {
