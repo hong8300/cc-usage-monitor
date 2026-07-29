@@ -8,15 +8,19 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  describeWindow,
   formatCountdown,
   formatPercent,
+  formatResetHint,
   mergeSnapshot,
   normalizeModelId,
   parseResetsAt,
   severityFor,
   stripDateSuffix,
+  windowReason,
   worstSeverity,
 } from "../src/shared/normalize.ts";
+import { FIVE_HOUR_WINDOW_MS } from "../src/shared/types.ts";
 
 test("findings §2-3(1): 浮動小数点誤差つきの used_percentage を丸めて表示する", () => {
   // 実測値。素で描画すると "14.000000000000002%" と出てしまう。
@@ -131,4 +135,103 @@ test("リセットまでのカウントダウン", () => {
   assert.equal(formatCountdown(new Date(base + 20 * 60_000), base), "20分後");
   assert.equal(formatCountdown(new Date(base + 26 * 3_600_000), base), "1日2時間後");
   assert.equal(formatCountdown(new Date(base - 1000), base), "まもなくリセット");
+});
+
+test("「まもなくリセット」は跨いだ直後だけ。何時間も前に過ぎた値には出さない", () => {
+  const base = Date.parse("2026-07-28T00:00:00Z");
+  // マシンを一晩落として起動した状況。前日の resets_at はとうに過ぎている。
+  assert.equal(formatCountdown(new Date(base - 9 * 3_600_000), base), "リセット済み");
+  assert.equal(formatCountdown(new Date(base - 61_000), base), "リセット済み");
+  // 猶予 (60秒) の内側は従来どおり
+  assert.equal(formatCountdown(new Date(base - 59_000), base), "まもなくリセット");
+});
+
+test("リセット文言は助詞まで込みで組み立てる（「まもなくリセットにリセット」を出さない）", () => {
+  const base = Date.parse("2026-07-28T00:00:00Z");
+  assert.equal(formatResetHint(new Date(base + 90 * 60_000), base), "1時間30分後にリセット");
+  // 過去時刻に「にリセット」を足さないこと。これが実際に画面に出ていた不具合。
+  assert.equal(formatResetHint(new Date(base - 1000), base), "まもなくリセット");
+  assert.equal(formatResetHint(new Date(base - 9 * 3_600_000), base), "リセット済み");
+  assert.equal(formatResetHint(null, base), null);
+});
+
+test("週次枠は日付も添える", () => {
+  const base = Date.parse("2026-07-28T00:00:00Z");
+  const hint = formatResetHint(new Date(base + 50 * 3_600_000), base, { withDate: true });
+  assert.match(hint ?? "", /にリセット（2日2時間後）$/);
+});
+
+test("resets_at を過ぎた枠の消費率は表示しない（前日の値を現在値として出さない）", () => {
+  const now = Date.parse("2026-07-30T06:00:00Z");
+  const yesterday = Date.parse("2026-07-29T21:00:00Z");
+
+  const view = describeWindow(
+    // 前日 21:00 に観測、リセットは 22:30 → 現在から見て 7時間半前に切り替わっている
+    {
+      value: { used_percentage: 23, resets_at: Date.parse("2026-07-29T22:30:00Z") / 1000 },
+      observedAt: yesterday,
+    },
+    now,
+    { maxAgeMs: FIVE_HOUR_WINDOW_MS },
+  );
+
+  assert.equal(view.expired, true);
+  assert.equal(view.percent, null, "期限切れの 23% を現在値として出してはいけない");
+  assert.equal(view.lastKnownPercent, 23, "説明用に前の枠の値は残す");
+  assert.equal(view.stale, true);
+});
+
+test("期限内の枠はそのまま表示する", () => {
+  const now = Date.parse("2026-07-30T06:00:00Z");
+  const view = describeWindow(
+    {
+      value: { used_percentage: 16, resets_at: Date.parse("2026-07-30T10:50:00Z") / 1000 },
+      observedAt: now - 30_000,
+    },
+    now,
+    { maxAgeMs: FIVE_HOUR_WINDOW_MS },
+  );
+
+  assert.equal(view.expired, false);
+  assert.equal(view.percent, 16);
+  assert.equal(view.stale, false);
+});
+
+test("resets_at が欠けていてもウィンドウ長を超えた観測は期限切れとみなす", () => {
+  const now = Date.parse("2026-07-30T06:00:00Z");
+  const observed = { value: { used_percentage: 23 }, observedAt: now - 6 * 3_600_000 };
+
+  // 5時間枠として評価 → 6時間前の観測はもう別の枠
+  assert.equal(describeWindow(observed, now, { maxAgeMs: FIVE_HOUR_WINDOW_MS }).percent, null);
+  // ウィンドウ長を渡さなければ判定材料が無いので落とさない
+  assert.equal(describeWindow(observed, now).percent, 23);
+});
+
+test("未取得と期限切れは別物として扱う", () => {
+  const now = Date.parse("2026-07-30T06:00:00Z");
+  const missing = describeWindow(null, now);
+  assert.equal(missing.percent, null);
+  assert.equal(missing.expired, false);
+  assert.equal(missing.observedAt, null);
+
+  // 未取得なら呼び出し側の理由がそのまま出る
+  assert.equal(windowReason(missing, "ブリッジが無効です"), "ブリッジが無効です");
+});
+
+test("期限切れは「取得できない」ではなく「リセット済み」と説明する", () => {
+  const now = Date.parse("2026-07-30T06:00:00Z");
+  const view = describeWindow(
+    {
+      value: { used_percentage: 23, resets_at: Date.parse("2026-07-29T22:30:00Z") / 1000 },
+      observedAt: Date.parse("2026-07-29T21:00:00Z"),
+    },
+    now,
+  );
+
+  const reason = windowReason(view, "ブリッジが無効です");
+  assert.match(reason, /リセット済み/);
+  assert.match(reason, /前の枠は 23%/);
+  assert.doesNotMatch(reason, /ブリッジ/, "期限切れの理由がブリッジ未設定にすり替わっている");
+
+  assert.equal(windowReason(view, "x", { short: true }), "リセット済み — 次の更新待ち");
 });

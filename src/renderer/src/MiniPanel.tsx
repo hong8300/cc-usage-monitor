@@ -1,6 +1,17 @@
 import { useEffect, useState } from "react";
-import { formatCountdown, parseResetsAt, severityFor } from "../../shared/normalize.ts";
-import { STALE_AFTER_MS, type BridgeState, type UsageSnapshot } from "../../shared/types.ts";
+import {
+  describeWindow,
+  formatResetHint,
+  severityFor,
+  windowReason,
+} from "../../shared/normalize.ts";
+import {
+  FIVE_HOUR_WINDOW_MS,
+  SEVEN_DAY_WINDOW_MS,
+  STALE_AFTER_MS,
+  type BridgeState,
+  type UsageSnapshot,
+} from "../../shared/types.ts";
 import { Meter } from "./components/Meter.tsx";
 
 /**
@@ -31,8 +42,8 @@ export function MiniPanel() {
 
   const lastAt = snapshot?.lastPayloadAt ?? null;
   const stale = lastAt !== null && now - lastAt > STALE_AFTER_MS;
-  const five = snapshot?.fiveHour?.value ?? null;
-  const seven = snapshot?.sevenDay?.value ?? null;
+  const five = describeWindow(snapshot?.fiveHour, now, { maxAgeMs: FIVE_HOUR_WINDOW_MS });
+  const seven = describeWindow(snapshot?.sevenDay, now, { maxAgeMs: SEVEN_DAY_WINDOW_MS });
 
   const unavailableReason =
     bridge?.status !== "enabled"
@@ -53,27 +64,19 @@ export function MiniPanel() {
     >
       <Meter
         label="セッション枠（5時間）"
-        percent={five?.used_percentage ?? null}
-        severity={severityFor(five?.used_percentage)}
-        resetHint={
-          formatCountdown(parseResetsAt(five?.resets_at), now)
-            ? `${formatCountdown(parseResetsAt(five?.resets_at), now)}にリセット`
-            : null
-        }
-        unavailableReason={unavailableReason}
+        percent={five.percent}
+        severity={severityFor(five.percent)}
+        resetHint={formatResetHint(five.resetsAt, now)}
+        unavailableReason={windowReason(five, unavailableReason, { short: true })}
         stale={stale}
         compact
       />
       <Meter
         label="週次枠"
-        percent={seven?.used_percentage ?? null}
-        severity={severityFor(seven?.used_percentage)}
-        resetHint={
-          formatCountdown(parseResetsAt(seven?.resets_at), now)
-            ? `${formatCountdown(parseResetsAt(seven?.resets_at), now)}にリセット`
-            : null
-        }
-        unavailableReason={unavailableReason}
+        percent={seven.percent}
+        severity={severityFor(seven.percent)}
+        resetHint={formatResetHint(seven.resetsAt, now)}
+        unavailableReason={windowReason(seven, unavailableReason, { short: true })}
         stale={stale}
         compact
       />

@@ -23,18 +23,37 @@ beforeEach(() => {
   fired = [];
 });
 
+const NOW = Date.parse("2026-07-28T00:00:00Z");
+
 function makeNotifier() {
   return new ThresholdNotifier({
     notify: (title, body) => fired.push({ title, body }),
-    now: () => Date.parse("2026-07-28T00:00:00Z"),
+    now: () => NOW,
   });
 }
 
-function snapshot(five: number | null, seven: number | null, resetsAt = 1785208200): UsageSnapshot {
+/**
+ * `observedAt` は既定で「たった今」。
+ *
+ * 以前この fixture は observedAt: 1 (1970年) を渡していた。実機ではありえない値で、
+ * 通知側が鮮度を見るようになった時点でテストが実態と食い違う。
+ */
+function snapshot(
+  five: number | null,
+  seven: number | null,
+  resetsAt = 1785208200,
+  observedAt = NOW,
+): UsageSnapshot {
   return {
-    lastPayloadAt: 1,
-    fiveHour: five === null ? null : { value: { used_percentage: five, resets_at: resetsAt }, observedAt: 1 },
-    sevenDay: seven === null ? null : { value: { used_percentage: seven, resets_at: 1785787200 }, observedAt: 1 },
+    lastPayloadAt: observedAt,
+    fiveHour:
+      five === null
+        ? null
+        : { value: { used_percentage: five, resets_at: resetsAt }, observedAt },
+    sevenDay:
+      seven === null
+        ? null
+        : { value: { used_percentage: seven, resets_at: 1785787200 }, observedAt },
     model: null,
     contextWindow: null,
     sessionCost: null,
@@ -146,4 +165,25 @@ test("本文にリセットまでの残り時間が入る", () => {
   // now = 2026-07-28T00:00:00Z, resets_at = 1785208200 = 2026-07-28T03:10:00Z
   n.check(snapshot(85, null), settings);
   assert.match(fired[0]!.body, /3時間10分後にリセット/);
+});
+
+test("resets_at を過ぎた枠では鳴らさない（起動時に前日の値で通知が飛ぶのを防ぐ）", () => {
+  const n = makeNotifier();
+  // 前日 21:00 に 96% を観測、その枠は 22:30 にリセット済み。
+  // マシンを立ち上げた瞬間にこれを読み込んでも通知してはいけない。
+  const yesterday = Date.parse("2026-07-27T21:00:00Z");
+  const expiredAt = Date.parse("2026-07-27T22:30:00Z") / 1000;
+  n.check(snapshot(96, null, expiredAt, yesterday), settings);
+  assert.equal(fired.length, 0);
+});
+
+test("期限内でも 5分以上古い値では鳴らさない", () => {
+  const n = makeNotifier();
+  // resets_at は未来なので期限内。ただし観測は 10分前。
+  n.check(snapshot(96, null, 1785208200, NOW - 10 * 60_000), settings);
+  assert.equal(fired.length, 0);
+
+  // 同じ値でも新鮮なら鳴る
+  n.check(snapshot(96, null), settings);
+  assert.equal(fired.length, 1);
 });

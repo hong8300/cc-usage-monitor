@@ -5,12 +5,13 @@
  * 「念のため」で足したものは無い。
  */
 
-import type {
-  ContextWindow,
-  Observed,
-  RateLimitWindow,
-  StatusLinePayload,
-  UsageSnapshot,
+import {
+  STALE_AFTER_MS,
+  type ContextWindow,
+  type Observed,
+  type RateLimitWindow,
+  type StatusLinePayload,
+  type UsageSnapshot,
 } from "./types.ts";
 
 /**
@@ -178,6 +179,27 @@ export function emptySnapshot(): UsageSnapshot {
   };
 }
 
+/**
+ * 数値を出せないときに代わりに出す説明文。
+ *
+ * 「—」だけを出すと壊れているように見える。とくに期限切れは
+ * 「取得できない」ではなく「前の枠の値だったので捨てた」なので、そう書き分ける。
+ *
+ * @param fallback 期限切れ以外 (ブリッジ未有効・セッション未起動など) の理由。
+ * @param options.short ミニウィンドウ用。幅が無いので前の枠の値と説明を落とす。
+ */
+export function windowReason(
+  view: WindowView,
+  fallback: string,
+  options: { short?: boolean } = {},
+): string {
+  if (!view.expired) return fallback;
+  if (options.short) return "リセット済み — 次の更新待ち";
+  const previous = formatPercent(view.lastKnownPercent);
+  const suffix = "Claude Code が次に更新するまで待っています";
+  return previous ? `リセット済み（前の枠は ${previous}）— ${suffix}` : `リセット済み — ${suffix}`;
+}
+
 /** 指示書 §4: 〜50% 緑 / 〜80% 橙 / 80%〜 赤 */
 export type Severity = "ok" | "warn" | "critical";
 
@@ -213,10 +235,20 @@ export function formatAge(observedAt: number | null, now: number): string | null
   return `${Math.floor(hours / 24)}日前`;
 }
 
+/**
+ * `resets_at` を過ぎた直後の猶予。
+ *
+ * リセット時刻を跨いだ瞬間は「まもなくリセット」で正しいが、
+ * 何時間も前に過ぎた値をそう出し続けるのは嘘になる。境界をここに一本化する。
+ */
+export const RESET_GRACE_MS = 60_000;
+
 /** リセットまでの残り時間。指示書 §4 のカウントダウン用。 */
 export function formatCountdown(resetsAt: Date | null, now: number): string | null {
   if (!resetsAt) return null;
   const ms = resetsAt.getTime() - now;
+  // 過ぎた時刻に対して残り時間は存在しない。「まもなく」は跨いだ直後だけ。
+  if (ms <= -RESET_GRACE_MS) return "リセット済み";
   if (ms <= 0) return "まもなくリセット";
   const minutes = Math.floor(ms / 60000);
   const days = Math.floor(minutes / (60 * 24));
@@ -225,4 +257,101 @@ export function formatCountdown(resetsAt: Date | null, now: number): string | nu
   if (days > 0) return `${days}日${hours}時間後`;
   if (hours > 0) return `${hours}時間${mins}分後`;
   return `${mins}分後`;
+}
+
+/**
+ * リセット予定の**完成した表示文**。呼び出し側で「にリセット」を足さないこと。
+ *
+ * 以前は各画面が `${formatCountdown(...)}にリセット` と自前で連結していたため、
+ * 過去時刻で「まもなくリセットにリセット」という文字列が出ていた。
+ * 助詞まで含めてここで組み立て、その手の二重表現を構造的に不可能にする。
+ */
+export function formatResetHint(
+  resetsAt: Date | null,
+  now: number,
+  options: { withDate?: boolean } = {},
+): string | null {
+  if (!resetsAt) return null;
+  const ms = resetsAt.getTime() - now;
+  if (ms <= -RESET_GRACE_MS) return "リセット済み";
+  if (ms <= 0) return "まもなくリセット";
+
+  const countdown = formatCountdown(resetsAt, now);
+  if (!options.withDate) return `${countdown}にリセット`;
+  // 週次枠は数日先なので、残り時間だけでは何日か分からない。日付も添える。
+  const label = resetsAt.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  return `${label} にリセット（${countdown}）`;
+}
+
+/**
+ * 1つのウィンドウについて「今この瞬間、何を表示してよいか」を確定させた形。
+ *
+ * Tray / パネル / ミニウィンドウ / 通知が個別に鮮度判定を書くと必ずズレるので、
+ * 判定はここ 1 箇所に集約する。
+ */
+export interface WindowView {
+  /** **現在の枠の値として表示してよい**消費率。期限切れ・未取得なら null。 */
+  percent: number | null;
+  /** 期限切れでも保持する生の観測値。「前の枠では 23% でした」の表示用。 */
+  lastKnownPercent: number | null;
+  resetsAt: Date | null;
+  /**
+   * `resets_at` を過ぎている = この数字はもう「今の枠」のものではない。
+   *
+   * マシンを一晩落としてから起動すると、`latest.json` には前日の 5時間枠が残っている。
+   * それを現在値として出すのが最も紛らわしいので、期限切れは数値ごと落とす。
+   */
+  expired: boolean;
+  /** STALE_AFTER_MS 以上更新が無い。期限内ではあるが古い。 */
+  stale: boolean;
+  /** 観測時刻 (ms)。null = 一度も観測していない。 */
+  observedAt: number | null;
+}
+
+const EMPTY_VIEW: WindowView = {
+  percent: null,
+  lastKnownPercent: null,
+  resetsAt: null,
+  expired: false,
+  stale: false,
+  observedAt: null,
+};
+
+/**
+ * 観測済みウィンドウを表示用に評価する。
+ *
+ * `maxAgeMs` は `resets_at` が欠落していたときのフォールバック
+ * (findings.md §2: 各フィールドは独立して欠損しうる)。ウィンドウ長を渡しておけば、
+ * リセット時刻が分からなくても「もう別の枠の話」と判定できる。
+ */
+export function describeWindow(
+  observed: Observed<RateLimitWindow> | null | undefined,
+  now: number,
+  options: { maxAgeMs?: number } = {},
+): WindowView {
+  if (!observed) return EMPTY_VIEW;
+
+  const resetsAt = parseResetsAt(observed.value.resets_at);
+  const age = now - observed.observedAt;
+  const expired =
+    resetsAt !== null
+      ? resetsAt.getTime() <= now
+      : options.maxAgeMs !== undefined && age > options.maxAgeMs;
+
+  const raw = observed.value.used_percentage;
+  const known = typeof raw === "number" && Number.isFinite(raw) ? raw : null;
+
+  return {
+    percent: expired ? null : known,
+    lastKnownPercent: known,
+    resetsAt,
+    expired,
+    stale: age > STALE_AFTER_MS,
+    observedAt: observed.observedAt,
+  };
 }

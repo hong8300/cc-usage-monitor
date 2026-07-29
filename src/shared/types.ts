@@ -198,3 +198,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
 
 /** 値が古いとみなす閾値 (指示書 §4: 5分以上古い場合はグレーアウト)。 */
 export const STALE_AFTER_MS = 5 * 60 * 1000;
+
+/**
+ * 各レート制限ウィンドウの長さ。
+ *
+ * `resets_at` が載っていない payload に対して「この観測はいつまで現在の枠の値か」の
+ * 上限として使う。5時間枠の観測値は、遅くとも 5時間後には別の枠のものになっている。
+ */
+export const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000;
+export const SEVEN_DAY_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;

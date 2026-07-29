@@ -60,6 +60,16 @@ export class UsageWatcher {
     return this.snapshot;
   }
 
+  /**
+   * ファイル監視イベント以外の経路からの再読込。
+   *
+   * スリープ復帰直後は監視が取りこぼしていることがあり、かつ寝ている間に
+   * 5時間枠がリセットされている可能性が高い。復帰時に読み直して評価をやり直す。
+   */
+  refresh(): void {
+    this.read();
+  }
+
   /** 立て続けの書き込みを 1 回にまとめる。 */
   private schedule(): void {
     if (this.pending) clearTimeout(this.pending);
@@ -71,8 +81,18 @@ export class UsageWatcher {
 
   private read(): void {
     let text: string;
+    let observedAt: number;
     try {
+      const stats = fs.statSync(LATEST_JSON);
       text = fs.readFileSync(LATEST_JSON, "utf8");
+      // **観測時刻はファイルの書き込み時刻であって、読んだ時刻ではない。**
+      //
+      // 起動時に読む latest.json は前回セッション — 下手をすると前日 — のものでありうる。
+      // ここで Date.now() を使うと昨日の値が「更新: たった今」として表示され、
+      // 鮮度判定も期限切れ判定もすべて無効になる。
+      //
+      // 未来の mtime (時刻ずれや別マシンからの同期) で永久に新鮮扱いされないよう上限を掛ける。
+      observedAt = Math.min(stats.mtimeMs, Date.now());
     } catch {
       // まだ書かれていない / 読めない。前回のスナップショットを保持したままにする。
       return;
@@ -87,7 +107,7 @@ export class UsageWatcher {
       return;
     }
 
-    this.snapshot = mergeSnapshot(this.snapshot, payload, Date.now());
+    this.snapshot = mergeSnapshot(this.snapshot, payload, observedAt);
     for (const listener of this.listeners) listener(this.snapshot);
   }
 }

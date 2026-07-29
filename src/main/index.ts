@@ -1,6 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { BrowserWindow, app, ipcMain, nativeTheme, screen, shell } from "electron";
+import { BrowserWindow, app, ipcMain, nativeTheme, powerMonitor, screen, shell } from "electron";
 import { IPC } from "../shared/ipc.ts";
 import type { AppSettings } from "../shared/types.ts";
 import { bridgePaths, disableBridge, enableBridge, getBridgeState } from "./bridge/bridge-manager.ts";
@@ -105,6 +105,21 @@ function broadcast(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(channel, payload);
   }
+}
+
+/**
+ * ディスクから読み直して全画面を描き直す。
+ *
+ * スリープ復帰・スクリーンロック解除の直後に必要になる:
+ *   - chokidar が寝ている間の書き込みを取りこぼしていることがある
+ *   - 取りこぼしが無くても、寝ている間に 5時間枠がリセットされている可能性が高い。
+ *     最後の payload のままだと、前の枠の消費率を現在値として出し続けてしまう。
+ */
+function refreshFromDisk(): void {
+  watcher.refresh();
+  const snapshot = watcher.current();
+  tray?.update(snapshot);
+  broadcast(IPC.snapshotChanged, snapshot);
 }
 
 /** 設定値を OS 側の状態 (テーマ・自動起動・小窓) とタイマーに反映する。 */
@@ -230,6 +245,9 @@ if (!app.requestSingleInstanceLock()) {
     watcher.start();
     applySideEffects(null);
     tray.update(watcher.current());
+
+    powerMonitor.on("resume", refreshFromDisk);
+    powerMonitor.on("unlock-screen", refreshFromDisk);
 
     localUsage.onReport((report) => broadcast(IPC.localReportChanged, report));
     // 起動直後の全ファイル走査で UI を待たせないよう、次のイベントループに逃がす。

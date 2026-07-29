@@ -11,14 +11,30 @@
 
 import { Menu, Tray, nativeImage } from "electron";
 import {
+  describeWindow,
   formatAge,
-  formatCountdown,
   formatPercent,
-  parseResetsAt,
+  formatResetHint,
   worstSeverity,
+  type WindowView,
 } from "../shared/normalize.ts";
-import { STALE_AFTER_MS, type AppSettings, type UsageSnapshot } from "../shared/types.ts";
+import {
+  FIVE_HOUR_WINDOW_MS,
+  SEVEN_DAY_WINDOW_MS,
+  STALE_AFTER_MS,
+  type AppSettings,
+  type UsageSnapshot,
+} from "../shared/types.ts";
 import { renderTrayIconPng } from "./tray-icon.ts";
+
+/**
+ * payload が来なくても表示を評価し直す間隔。
+ *
+ * Tray はこれまでスナップショット更新でしか再描画していなかったので、
+ * Claude Code を触っていない間は昨日の数字が出たまま固まっていた。
+ * 枠のリセットは時間の経過だけで起きる以上、時間でも描き直す必要がある。
+ */
+const TICK_MS = 30_000;
 
 export interface TrayCallbacks {
   onToggleWindow: () => void;
@@ -34,6 +50,7 @@ export class TrayController {
   private snapshot: UsageSnapshot | null = null;
   private settings: AppSettings;
   private readonly callbacks: TrayCallbacks;
+  private ticker: NodeJS.Timeout | null = null;
 
   constructor(settings: AppSettings, callbacks: TrayCallbacks) {
     this.settings = settings;
@@ -45,9 +62,16 @@ export class TrayController {
     this.tray = new Tray(nativeImage.createFromBuffer(initial, { scaleFactor: 2 }));
     this.tray.on("click", () => this.callbacks.onToggleWindow());
     this.render();
+    this.renderMenu();
+
+    this.ticker = setInterval(() => this.render(), TICK_MS);
+    // 表示更新のためだけにプロセスを生かし続けない。
+    this.ticker.unref?.();
   }
 
   destroy(): void {
+    if (this.ticker) clearInterval(this.ticker);
+    this.ticker = null;
     this.tray?.destroy();
     this.tray = null;
   }
@@ -60,45 +84,48 @@ export class TrayController {
   updateSettings(settings: AppSettings): void {
     this.settings = settings;
     this.render();
+    // メニューには表示形式のラジオとミニウィンドウのチェックが載っている。
+    // 30秒ごとの render() では組み直さないので、ここで反映する。
+    this.renderMenu();
   }
 
-  private fivePercent(): number | null {
-    return this.snapshot?.fiveHour?.value.used_percentage ?? null;
+  private view(kind: "five" | "seven", now: number): WindowView {
+    return kind === "five"
+      ? describeWindow(this.snapshot?.fiveHour, now, { maxAgeMs: FIVE_HOUR_WINDOW_MS })
+      : describeWindow(this.snapshot?.sevenDay, now, { maxAgeMs: SEVEN_DAY_WINDOW_MS });
   }
 
-  private sevenPercent(): number | null {
-    return this.snapshot?.sevenDay?.value.used_percentage ?? null;
-  }
-
-  /** `5h 42% · 7d 18%`。欠損は `—`(指示書 §4)。 */
-  private titleText(): string {
-    const five = formatPercent(this.fivePercent()) ?? "—";
-    const seven = formatPercent(this.sevenPercent()) ?? "—";
-    return `5h ${five} · 7d ${seven}`;
+  /** `5h 42% · 7d 18%`。欠損・期限切れは `—`(指示書 §4: 0% ではなく —)。 */
+  private titleText(five: WindowView, seven: WindowView): string {
+    return `5h ${formatPercent(five.percent) ?? "—"} · 7d ${formatPercent(seven.percent) ?? "—"}`;
   }
 
   private render(): void {
     if (!this.tray) return;
 
-    const five = this.fivePercent();
-    const seven = this.sevenPercent();
+    const now = Date.now();
+    const five = this.view("five", now);
+    const seven = this.view("seven", now);
 
     // アイコンのリングは 5時間枠、色は 2つの枠のうち厳しい方を採る。
+    //
+    // ただしリングが表しているのは 5時間枠なので、それが不明なときに週次枠の色を
+    // 借りてはいけない。トラックも severity 色で薄く敷かれる実装 (tray-icon.ts) のため、
+    // 5時間枠が期限切れでも週次枠が緑ならリング全体が緑がかり、
+    // 「セッション枠は余裕」と読めてしまう。不明なら unknown 色に落とす。
     const png = renderTrayIconPng({
-      percent: five,
-      severity: worstSeverity(five, seven),
+      percent: five.percent,
+      severity: five.percent === null ? null : worstSeverity(five.percent, seven.percent),
     });
     const image = nativeImage.createFromBuffer(png, { scaleFactor: 2 });
 
     const mode = this.settings.tray.mode;
     this.tray.setImage(mode === "percent" ? nativeImage.createEmpty() : image);
-    this.tray.setTitle(mode === "icon" ? "" : this.titleText());
-    this.tray.setToolTip(this.tooltip());
-    this.tray.setContextMenu(this.menu());
+    this.tray.setTitle(mode === "icon" ? "" : this.titleText(five, seven));
+    this.tray.setToolTip(this.tooltip(now, five, seven));
   }
 
-  private tooltip(): string {
-    const now = Date.now();
+  private tooltip(now: number, five: WindowView, seven: WindowView): string {
     const lines: string[] = ["Claude 使用量モニタ"];
 
     if (!this.snapshot || this.snapshot.lastPayloadAt === null) {
@@ -106,23 +133,35 @@ export class TrayController {
       return lines.join("\n");
     }
 
-    const describe = (label: string, window: UsageSnapshot["fiveHour"]) => {
-      if (!window) {
+    const describe = (label: string, view: WindowView) => {
+      if (view.observedAt === null) {
         lines.push(`${label}: — (未取得)`);
         return;
       }
-      const pct = formatPercent(window.value.used_percentage) ?? "—";
-      const reset = formatCountdown(parseResetsAt(window.value.resets_at), now);
-      lines.push(`${label}: ${pct}${reset ? ` (${reset}にリセット)` : ""}`);
+      if (view.expired) {
+        // 数字を消すだけだと「なぜ消えたのか」が分からないので、前の枠の値を添える。
+        const previous = formatPercent(view.lastKnownPercent);
+        lines.push(
+          `${label}: — (リセット済み${previous ? ` / 前の枠は ${previous}` : ""}) — 次の更新待ち`,
+        );
+        return;
+      }
+      const pct = formatPercent(view.percent) ?? "—";
+      const hint = formatResetHint(view.resetsAt, now);
+      lines.push(`${label}: ${pct}${hint ? ` (${hint})` : ""}`);
     };
 
-    describe("5時間枠", this.snapshot.fiveHour);
-    describe("週次枠", this.snapshot.sevenDay);
+    describe("5時間枠", five);
+    describe("週次枠", seven);
 
     const age = formatAge(this.snapshot.lastPayloadAt, now);
     const stale = now - this.snapshot.lastPayloadAt > STALE_AFTER_MS;
     lines.push(`更新: ${age}${stale ? "（古い可能性あり）" : ""}`);
     return lines.join("\n");
+  }
+
+  private renderMenu(): void {
+    this.tray?.setContextMenu(this.menu());
   }
 
   private menu(): Menu {

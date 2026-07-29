@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  describeWindow,
   formatAge,
-  formatCountdown,
-  parseResetsAt,
+  formatResetHint,
   severityFor,
+  windowReason,
 } from "../../shared/normalize.ts";
 import type { AppPaths } from "../../shared/ipc.ts";
 import {
+  FIVE_HOUR_WINDOW_MS,
+  SEVEN_DAY_WINDOW_MS,
   STALE_AFTER_MS,
   type AppSettings,
   type BridgeState,
@@ -95,8 +98,8 @@ export function App() {
         ? "Claude Code セッション未起動 — セッションが動き出すと更新されます"
         : "セッション初回の API 応答前、または Pro/Max 契約以外では取得できません";
 
-  const five = snapshot?.fiveHour?.value ?? null;
-  const seven = snapshot?.sevenDay?.value ?? null;
+  const five = describeWindow(snapshot?.fiveHour, now, { maxAgeMs: FIVE_HOUR_WINDOW_MS });
+  const seven = describeWindow(snapshot?.sevenDay, now, { maxAgeMs: SEVEN_DAY_WINDOW_MS });
 
   return (
     <div
@@ -107,18 +110,21 @@ export function App() {
         className="drag-region flex items-center justify-between px-4 pt-3 pb-2"
         style={{ borderBottom: "1px solid var(--hairline)" }}
       >
-        <div>
+        {/* 鮮度の行は「更新 9時間前 (7/29 21:17) · 古い可能性あり」まで伸びる。
+            min-w-0 が無いとバッジ側を押し潰して「未接/続」と折り返す。 */}
+        <div className="min-w-0 flex-1">
           <h1 className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
             Claude 使用量
           </h1>
           <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
-            {/* 指示書 §4: データソースと最終更新時刻を必ず出す */}
+            {/* 指示書 §4: データソースと最終更新時刻を必ず出す。
+                古いときは相対時刻だけだと実感が湧かないので絶対時刻も添える。 */}
             出所 statusLine ·{" "}
             {lastAt === null ? "未取得" : `更新 ${formatAge(lastAt, now)}`}
-            {stale && " · 古い可能性あり"}
+            {stale && lastAt !== null && ` (${formatClock(lastAt)}) · 古い可能性あり`}
           </p>
         </div>
-        <div className="no-drag flex items-center gap-1.5">
+        <div className="no-drag flex shrink-0 items-center gap-1.5">
           <SourceBadge bridge={bridge} />
           <button
             type="button"
@@ -158,23 +164,19 @@ export function App() {
       <main className="flex-1 space-y-5 overflow-y-auto px-4 py-4">
         <Meter
           label="セッション枠（5時間）"
-          percent={five?.used_percentage ?? null}
-          severity={severityFor(five?.used_percentage)}
-          resetHint={
-            formatCountdown(parseResetsAt(five?.resets_at), now)
-              ? `${formatCountdown(parseResetsAt(five?.resets_at), now)}にリセット`
-              : null
-          }
-          unavailableReason={unavailableReason}
+          percent={five.percent}
+          severity={severityFor(five.percent)}
+          resetHint={formatResetHint(five.resetsAt, now)}
+          unavailableReason={windowReason(five, unavailableReason)}
           stale={stale}
         />
 
         <Meter
           label="週次枠（全モデル合計）"
-          percent={seven?.used_percentage ?? null}
-          severity={severityFor(seven?.used_percentage)}
-          resetHint={formatResetDate(parseResetsAt(seven?.resets_at), now)}
-          unavailableReason={unavailableReason}
+          percent={seven.percent}
+          severity={severityFor(seven.percent)}
+          resetHint={formatResetHint(seven.resetsAt, now, { withDate: true })}
+          unavailableReason={windowReason(seven, unavailableReason)}
           stale={stale}
         />
 
@@ -203,12 +205,24 @@ export function App() {
   );
 }
 
+/** 「昨日の値」と分かるよう、日付をまたいだ場合は日付も出す。 */
+function formatClock(at: number): string {
+  const date = new Date(at);
+  const sameDay = new Date().toDateString() === date.toDateString();
+  return date.toLocaleString("ja-JP", {
+    month: sameDay ? undefined : "numeric",
+    day: sameDay ? undefined : "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 /** 指示書 §4: ヘッダにデータソースを出す。Phase 2 以降で「推定」「OAuth」が増える。 */
 function SourceBadge({ bridge }: { bridge: BridgeState | null }) {
   const enabled = bridge?.status === "enabled";
   return (
     <span
-      className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+      className="whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium"
       style={{
         color: enabled ? "var(--status-good)" : "var(--text-muted)",
         background: enabled
@@ -294,17 +308,4 @@ function BridgeToggle({
       </p>
     </div>
   );
-}
-
-/** 週次枠は日単位なので日付も添える。 */
-function formatResetDate(date: Date | null, now: number): string | null {
-  if (!date) return null;
-  const countdown = formatCountdown(date, now);
-  const label = date.toLocaleString("ja-JP", {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-  return `${label} にリセット${countdown ? `（${countdown}）` : ""}`;
 }
