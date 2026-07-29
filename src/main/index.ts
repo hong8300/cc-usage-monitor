@@ -151,10 +151,17 @@ function applySideEffects(previous: AppSettings | null): void {
     }
   }
 
-  // ブリッジが有効なら refreshInterval の変更を settings.json に反映する。
-  const intervalChanged =
-    previous !== null && previous.statusLineRefreshSeconds !== settings.statusLineRefreshSeconds;
-  if (intervalChanged && getBridgeState().status === "enabled") {
+  // ブリッジが有効なら refreshInterval を settings.json の現物と突き合わせて直す。
+  //
+  // 「前回と変わったときだけ書く」だと、既定値を変えても既存ユーザーには一生届かない
+  // (起動時は previous === null で、設定を触るまで比較が走らないため)。
+  // 希望値と現物を比べる形にすれば、起動時のズレも設定変更も同じ経路で収束する。
+  // 一致していれば書かないので、毎回 settings.json を触ることにはならない。
+  const state = getBridgeState();
+  if (
+    state.status === "enabled" &&
+    state.refreshIntervalSeconds !== settings.statusLineRefreshSeconds
+  ) {
     broadcast(
       IPC.bridgeStateChanged,
       enableBridge({ refreshIntervalSeconds: settings.statusLineRefreshSeconds }),

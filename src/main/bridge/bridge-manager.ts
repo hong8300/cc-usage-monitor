@@ -97,10 +97,13 @@ export function getBridgeState(): BridgeState {
 
     if (isOurBridge(statusLine)) {
       const config = readJsonFile<BridgeConfig>(BRIDGE_CONFIG_JSON);
+      const interval = statusLine.refreshInterval;
       return {
         status: "enabled",
         bridgePath: BRIDGE_JS,
         wrappedCommand: config?.originalCommand ?? null,
+        // アプリの希望値ではなく settings.json の現物を返す。
+        refreshIntervalSeconds: typeof interval === "number" ? interval : null,
       };
     }
 

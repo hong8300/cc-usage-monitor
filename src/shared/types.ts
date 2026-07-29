@@ -104,7 +104,17 @@ export interface UsageSnapshot {
 
 export type BridgeState =
   | { status: "disabled" }
-  | { status: "enabled"; bridgePath: string; wrappedCommand: string | null }
+  | {
+      status: "enabled";
+      bridgePath: string;
+      wrappedCommand: string | null;
+      /**
+       * settings.json に実際に入っている `statusLine.refreshInterval` (秒)。null なら未設定。
+       *
+       * アプリ側の希望値ではなく**現物**。起動時にズレを検出して直すために要る。
+       */
+      refreshIntervalSeconds: number | null;
+    }
   /** settings.json に他ツールの statusLine が入っており、こちらのブリッジではない状態。 */
   | { status: "foreign"; command: string }
   | { status: "error"; message: string };
@@ -152,7 +162,19 @@ export interface PanelSettings {
   autoHide: boolean;
 }
 
+/**
+ * `app-settings.json` のスキーマ版。
+ *
+ * 既定値を変えたとき、「その項目をまだ選んでいない人」だけを新しい既定へ移すために使う。
+ * これが無いと、初期値のまま保存された値と、ユーザーが能動的に選んだ同じ値を区別できない。
+ *
+ * v1: statusLineRefreshSeconds の既定を null → 30 に変更 (2026-07-30)。
+ */
+export const SETTINGS_SCHEMA_VERSION = 1;
+
 export interface AppSettings {
+  /** 保存時のスキーマ版。読み込み時のマイグレーション判定にだけ使う。 */
+  schemaVersion: number;
   tray: TrayDisplaySettings;
   panel: PanelSettings;
   mini: MiniWindowSettings;
@@ -168,13 +190,18 @@ export interface AppSettings {
   /**
    * Claude Code の `statusLine.refreshInterval` に渡す秒数。null なら設定しない。
    *
-   * 既定ではイベント駆動でしか statusLine が走らないため、Claude Code が起動していても
+   * Claude Code の既定ではイベント駆動でしか statusLine が走らないため、起動していても
    * 操作していない間は使用量が更新されない。ここを設定すると N 秒ごとに再実行される。
+   *
+   * **既定を 30 秒にしている。** null (設定しない) だと、枠がリセットされても画面は
+   * 「リセット済み — 次の更新待ち」のまま次の操作まで止まる。ブリッジは node を
+   * 1 回起動するだけなので、30 秒間隔の負荷は無視できる。
    */
   statusLineRefreshSeconds: number | null;
 }
 
 export const DEFAULT_APP_SETTINGS: AppSettings = {
+  schemaVersion: SETTINGS_SCHEMA_VERSION,
   tray: { mode: "both" },
   panel: { autoHide: true },
   mini: {
@@ -193,7 +220,7 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   launchAtLogin: false,
   theme: "system",
   localRefreshSeconds: 300,
-  statusLineRefreshSeconds: null,
+  statusLineRefreshSeconds: 30,
 };
 
 /** 値が古いとみなす閾値 (指示書 §4: 5分以上古い場合はグレーアウト)。 */

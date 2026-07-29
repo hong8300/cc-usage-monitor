@@ -288,7 +288,7 @@ export function Settings({
         <div style={{ borderTop: "1px solid var(--hairline)" }}>
           <Row
             label="statusLine の再実行間隔"
-            hint="既定では Claude Code の操作時にしか更新されません。設定すると起動中は一定間隔で更新されます。ブリッジ有効時のみ反映。"
+            hint="Claude Code は既定だと操作したときにしか statusLine を実行しないので、放置していると表示が止まります。既定の 30 秒なら起動中は自動で更新されます。「設定しない」にすると操作時のみ。ブリッジ有効時に ~/.claude/settings.json へ反映されます。"
           >
             <Select
               value={settings.statusLineRefreshSeconds ?? 0}
@@ -298,7 +298,7 @@ export function Settings({
               options={[
                 { value: 0, label: "設定しない" },
                 { value: 10, label: "10 秒" },
-                { value: 30, label: "30 秒" },
+                { value: 30, label: "30 秒（既定）" },
                 { value: 60, label: "1 分" },
               ]}
             />
