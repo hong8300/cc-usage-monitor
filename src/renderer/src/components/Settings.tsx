@@ -145,12 +145,12 @@ export function Settings({
             />
           </Row>
           <Row
-            label="他をクリックしたらパネルを閉じる"
-            hint="OFF にすると、数字を見ながら別のウィンドウを操作できます。閉じるときはメニューバーのアイコンをもう一度クリックしてください。"
+            label="パネルを表示したままにする"
+            hint="ON にすると、ほかの場所をクリックしても閉じません。見出しをドラッグして移動できます。隠すときはメニューバーのアイコンをもう一度クリックしてください。"
           >
             <Toggle
-              checked={settings.panel.autoHide}
-              onChange={(autoHide) => patch({ panel: { ...settings.panel, autoHide } })}
+              checked={!settings.panel.autoHide}
+              onChange={(pinned) => patch({ panel: { ...settings.panel, autoHide: !pinned } })}
             />
           </Row>
         </div>

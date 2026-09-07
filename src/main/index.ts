@@ -229,6 +229,13 @@ if (!app.requestSingleInstanceLock()) {
 
     tray = new TrayController(settings, {
       onToggleWindow: togglePanel,
+      onTogglePanelPinned: () => {
+        applySettings({
+          ...settings,
+          panel: { ...settings.panel, autoHide: !settings.panel.autoHide },
+        });
+        if (!settings.panel.autoHide && !panel?.isVisible()) togglePanel();
+      },
       onOpenSettings: () => {
         if (!panel?.isVisible()) togglePanel();
         broadcast(IPC.openSettings, null);

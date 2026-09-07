@@ -128,6 +128,29 @@ export function App() {
           <SourceBadge bridge={bridge} />
           <button
             type="button"
+            disabled={!settings}
+            aria-pressed={settings ? !settings.panel.autoHide : false}
+            title="固定すると、ほかの場所をクリックしても閉じません。見出しをドラッグして移動できます。"
+            onClick={() => {
+              if (settings) {
+                void updateSettings({
+                  ...settings,
+                  panel: { ...settings.panel, autoHide: !settings.panel.autoHide },
+                });
+              }
+            }}
+            className="rounded px-1.5 py-0.5 text-[11px] disabled:opacity-40"
+            style={{
+              background: settings && !settings.panel.autoHide ? "var(--text-primary)" : "var(--surface-1)",
+              color: settings && !settings.panel.autoHide ? "var(--surface-page)" : "var(--text-secondary)",
+              border: "1px solid var(--hairline)",
+            }}
+            aria-label="パネルを表示したままにする"
+          >
+            {settings && !settings.panel.autoHide ? "固定中" : "表示を固定"}
+          </button>
+          <button
+            type="button"
             onClick={() => setView(view === "usage" ? "settings" : "usage")}
             className="rounded px-1.5 py-0.5 text-[11px]"
             style={{

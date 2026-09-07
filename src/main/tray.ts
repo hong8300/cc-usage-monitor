@@ -39,6 +39,7 @@ const TICK_MS = 30_000;
 export interface TrayCallbacks {
   onToggleWindow: () => void;
   onOpenSettings: () => void;
+  onTogglePanelPinned: () => void;
   onSetTrayMode: (mode: AppSettings["tray"]["mode"]) => void;
   onToggleMini: () => void;
   isMiniEnabled: () => boolean;
@@ -167,6 +168,12 @@ export class TrayController {
   private menu(): Menu {
     return Menu.buildFromTemplate([
       { label: "パネルを開く", click: () => this.callbacks.onToggleWindow() },
+      {
+        label: "パネルを表示したままにする",
+        type: "checkbox",
+        checked: !this.settings.panel.autoHide,
+        click: () => this.callbacks.onTogglePanelPinned(),
+      },
       {
         label: "ミニウィンドウを表示",
         type: "checkbox",
