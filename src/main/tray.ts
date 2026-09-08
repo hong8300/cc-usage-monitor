@@ -39,6 +39,7 @@ const TICK_MS = 30_000;
 export interface TrayCallbacks {
   onToggleWindow: () => void;
   onOpenSettings: () => void;
+  onOpenHelp: () => void;
   onTogglePanelPinned: () => void;
   onSetTrayMode: (mode: AppSettings["tray"]["mode"]) => void;
   onToggleMini: () => void;
@@ -181,6 +182,7 @@ export class TrayController {
         click: () => this.callbacks.onToggleMini(),
       },
       { label: "設定…", click: () => this.callbacks.onOpenSettings() },
+      { label: "ヘルプ…", click: () => this.callbacks.onOpenHelp() },
       { type: "separator" },
       {
         label: "表示形式",

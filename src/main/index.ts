@@ -101,6 +101,26 @@ function togglePanel(): void {
   panel.focus();
 }
 
+/** Trayの画面切替は、初回ロード完了前でも取りこぼさずレンダラへ届ける。 */
+function openPanelView(channel: typeof IPC.openSettings | typeof IPC.openHelp): void {
+  const created = panel === null;
+  const target = panel ?? createPanel();
+  panel = target;
+  const openView = () => target.webContents.send(channel, null);
+
+  if (created || target.webContents.isLoading()) {
+    target.webContents.once("did-finish-load", openView);
+  } else {
+    openView();
+  }
+
+  if (!target.isVisible()) {
+    positionNearTray(target);
+    target.show();
+    target.focus();
+  }
+}
+
 function broadcast(channel: string, payload: unknown): void {
   for (const window of BrowserWindow.getAllWindows()) {
     window.webContents.send(channel, payload);
@@ -201,6 +221,7 @@ function registerIpc(): void {
   ipcMain.handle(IPC.getSettings, () => settings);
   ipcMain.handle(IPC.setSettings, (_event, next: AppSettings) => applySettings(next));
   ipcMain.handle(IPC.getPaths, () => bridgePaths);
+  ipcMain.handle(IPC.getVersion, () => app.getVersion());
 
   ipcMain.handle(IPC.revealPath, (_event, target: string) => {
     // 任意パスを開かせない。アプリが管理しているパスだけを許可する。
@@ -236,10 +257,8 @@ if (!app.requestSingleInstanceLock()) {
         });
         if (!settings.panel.autoHide && !panel?.isVisible()) togglePanel();
       },
-      onOpenSettings: () => {
-        if (!panel?.isVisible()) togglePanel();
-        broadcast(IPC.openSettings, null);
-      },
+      onOpenSettings: () => openPanelView(IPC.openSettings),
+      onOpenHelp: () => openPanelView(IPC.openHelp),
       onSetTrayMode: (mode) => applySettings({ ...settings, tray: { ...settings.tray, mode } }),
       onToggleMini: () =>
         applySettings({

@@ -28,8 +28,10 @@ const api: MonitorApi = {
   onSettings: (listener) => subscribe<AppSettings>(IPC.settingsChanged, listener),
 
   getPaths: () => ipcRenderer.invoke(IPC.getPaths) as Promise<AppPaths>,
+  getVersion: () => ipcRenderer.invoke(IPC.getVersion) as Promise<string>,
   revealPath: (target) => ipcRenderer.invoke(IPC.revealPath, target) as Promise<void>,
   onOpenSettings: (listener) => subscribe<void>(IPC.openSettings, () => listener()),
+  onOpenHelp: (listener) => subscribe<void>(IPC.openHelp, () => listener()),
 };
 
 contextBridge.exposeInMainWorld("monitor", api);

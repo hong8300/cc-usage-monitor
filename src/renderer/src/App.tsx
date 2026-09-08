@@ -17,9 +17,12 @@ import {
 } from "../../shared/types.ts";
 import type { LocalUsageReport } from "../../shared/usage-types.ts";
 import { DailyChart } from "./components/DailyChart.tsx";
+import { Help } from "./components/Help.tsx";
 import { LocalUsage } from "./components/LocalUsage.tsx";
 import { Meter } from "./components/Meter.tsx";
 import { Settings } from "./components/Settings.tsx";
+
+type PanelView = "usage" | "settings" | "help";
 
 /** 1秒ごとに再描画するための now。カウントダウンと鮮度表示に使う。 */
 function useNow(intervalMs = 1000): number {
@@ -37,7 +40,8 @@ export function App() {
   const [localReport, setLocalReport] = useState<LocalUsageReport | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [paths, setPaths] = useState<AppPaths | null>(null);
-  const [view, setView] = useState<"usage" | "settings">("usage");
+  const [version, setVersion] = useState<string | null>(null);
+  const [view, setView] = useState<PanelView>("usage");
   const [busy, setBusy] = useState(false);
   const now = useNow();
 
@@ -47,17 +51,20 @@ export function App() {
     void window.monitor.getLocalReport().then(setLocalReport);
     void window.monitor.getSettings().then(setSettings);
     void window.monitor.getPaths().then(setPaths);
+    void window.monitor.getVersion().then(setVersion);
     const offSnapshot = window.monitor.onSnapshot(setSnapshot);
     const offBridge = window.monitor.onBridgeState(setBridge);
     const offLocal = window.monitor.onLocalReport(setLocalReport);
     const offSettings = window.monitor.onSettings(setSettings);
     const offOpenSettings = window.monitor.onOpenSettings(() => setView("settings"));
+    const offOpenHelp = window.monitor.onOpenHelp(() => setView("help"));
     return () => {
       offSnapshot();
       offBridge();
       offLocal();
       offSettings();
       offOpenSettings();
+      offOpenHelp();
     };
   }, []);
 
@@ -113,9 +120,14 @@ export function App() {
         {/* 鮮度の行は「更新 9時間前 (7/29 21:17) · 古い可能性あり」まで伸びる。
             min-w-0 が無いとバッジ側を押し潰して「未接/続」と折り返す。 */}
         <div className="min-w-0 flex-1">
-          <h1 className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
-            Claude 使用量
-          </h1>
+          <div className="flex items-baseline gap-2">
+            <h1 className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
+              Claude 使用量
+            </h1>
+            <span className="whitespace-nowrap text-[10px]" style={{ color: "var(--text-muted)" }}>
+              Version {version ?? "—"}
+            </span>
+          </div>
           <p className="mt-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
             {/* 指示書 §4: データソースと最終更新時刻を必ず出す。
                 古いときは相対時刻だけだと実感が湧かないので絶対時刻も添える。 */}
@@ -182,6 +194,10 @@ export function App() {
               読み込み中…
             </p>
           )}
+        </main>
+      ) : view === "help" ? (
+        <main className="flex-1 overflow-y-auto px-4 py-4">
+          <Help version={version} />
         </main>
       ) : (
       <main className="flex-1 space-y-5 overflow-y-auto px-4 py-4">

@@ -1,6 +1,6 @@
 {
   "name": "cc-usage-monitor",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Claude 使用量モニタ — statusLine ブリッジとローカルログから使用量を常時表示する",
   "main": "./out/main/index.js",
   "author": "JUN",

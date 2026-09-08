@@ -16,12 +16,15 @@ export const IPC = {
   disableBridge: "bridge:disable",
   bridgeStateChanged: "bridge:stateChanged",
   getPaths: "app:getPaths",
+  getVersion: "app:getVersion",
   getSettings: "app:getSettings",
   setSettings: "app:setSettings",
   settingsChanged: "app:settingsChanged",
   revealPath: "app:revealPath",
   /** Tray メニューの「設定…」から設定画面を開かせる。 */
   openSettings: "ui:openSettings",
+  /** Tray メニューの「ヘルプ…」からヘルプ画面を開かせる。 */
+  openHelp: "ui:openHelp",
 } as const;
 
 export interface AppPaths {
@@ -53,6 +56,8 @@ export interface MonitorApi {
   onSettings(listener: (settings: AppSettings) => void): () => void;
 
   getPaths(): Promise<AppPaths>;
+  getVersion(): Promise<string>;
   revealPath(target: string): Promise<void>;
   onOpenSettings(listener: () => void): () => void;
+  onOpenHelp(listener: () => void): () => void;
 }
