@@ -108,8 +108,57 @@ export function readWindow(v: unknown): RateLimitWindow | null {
   return out;
 }
 
-function observe<T>(value: T | null, at: number): Observed<T> | null {
-  return value === null ? null : { value, observedAt: at };
+/**
+ * レート制限ウィンドウを 1 つ取り込む。**後退する値は採らない。**
+ *
+ * statusLine は `statusLine.refreshInterval` の秒数ごとに**起動中の全セッションで**走る。
+ * その tick では API 応答が無いので、Claude Code はそのセッションが最後に受け取った
+ * `rate_limits` をそのまま出し続ける。つまり放置されたセッションは、何時間前の読み値でも
+ * 30秒ごとに書き続ける。`latest.json` は最後に書いたセッションが勝つ一枚なので、
+ * 2つ以上のセッションが動いていると値が行き来する。
+ *
+ * 実測 (2026-09-20): セッション A が 30%、別ウィンドウに放置されたセッション B が
+ * 当時の 17% を交互に上書きし、メニューバーが 30% → 17% → 30% と往復していた。
+ * B の payload は書かれた瞬間なので mtime は新しく、`resets_at` も同じ枠を指す。
+ * 鮮度判定 (STALE_AFTER_MS) も期限切れ判定 (describeWindow) もこれを弾けない。
+ *
+ * 弾けるのは中身の側だけ。`rate_limits` はセッション単位ではなく**アカウント単位**で、
+ * 同じ枠 (= 同じ `resets_at`) の中では消費率は減らない。したがって:
+ *   - 新しい枠 (resets_at が先) → 採用。枠が変われば消費率は当然下がる。
+ *   - 古い枠 (resets_at が前)   → 破棄。放置セッションが前の枠の値を再送している。
+ *   - 同じ枠で消費率が下がった  → 破棄。アカウント全体では起きえないので古い読み値。
+ *
+ * 破棄したときは `observedAt` も据え置く。値を保持したこと自体は正しいが、
+ * 「その数字をいつ確認したか」は書き換わっていないため。
+ */
+function adoptWindow(
+  previous: Observed<RateLimitWindow> | null,
+  incoming: RateLimitWindow | null,
+  now: number,
+): Observed<RateLimitWindow> | null {
+  // 今回の payload に載っていない = 「消えた」ではなく「今回は載っていない」。
+  if (incoming === null) return previous;
+  if (previous === null) return { value: incoming, observedAt: now };
+
+  const previousReset = parseResetsAt(previous.value.resets_at)?.getTime() ?? null;
+  const incomingReset = parseResetsAt(incoming.resets_at)?.getTime() ?? null;
+
+  // 片方でも `resets_at` が欠けていると枠を突き合わせられない (findings.md §2: 各
+  // フィールドは独立して欠損しうる)。判断材料が無い以上、最新の payload を信じる。
+  if (previousReset === null || incomingReset === null) {
+    return { value: incoming, observedAt: now };
+  }
+
+  if (incomingReset > previousReset) return { value: incoming, observedAt: now };
+  if (incomingReset < previousReset) return previous;
+
+  // ここから先は同じ枠。消費率の大小がそのまま新旧になる。
+  const incomingPercent = incoming.used_percentage;
+  if (typeof incomingPercent !== "number") return previous;
+  const previousPercent = previous.value.used_percentage;
+  if (typeof previousPercent === "number" && incomingPercent < previousPercent) return previous;
+
+  return { value: incoming, observedAt: now };
 }
 
 /**
@@ -129,8 +178,8 @@ export function mergeSnapshot(
   const prev = previous ?? emptySnapshot();
   const limits = isRecord(payload.rate_limits) ? payload.rate_limits : undefined;
 
-  const fiveHour = observe(readWindow(limits?.five_hour), now) ?? prev.fiveHour;
-  const sevenDay = observe(readWindow(limits?.seven_day), now) ?? prev.sevenDay;
+  const fiveHour = adoptWindow(prev.fiveHour, readWindow(limits?.five_hour), now);
+  const sevenDay = adoptWindow(prev.sevenDay, readWindow(limits?.seven_day), now);
 
   const rawModelId = payload.model?.id ?? null;
   const model = payload.model

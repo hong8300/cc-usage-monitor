@@ -96,6 +96,9 @@ export function App() {
 
   const lastAt = snapshot?.lastPayloadAt ?? null;
   const stale = lastAt !== null && now - lastAt > STALE_AFTER_MS;
+  // payload が届いたことと、その中の数字が新しいことは別。放置セッションは
+  // 当時の rate_limits を 30秒ごとに書き続けるので、到着時刻はいくらでも新しくなる。
+  // メーターの鮮度は**その数字を最後に確認した時刻** (describeWindow の stale) で見る。
 
   // 未取得の理由を具体的に出す (指示書 §4: 理由をツールチップで示す)。
   const unavailableReason =
@@ -207,7 +210,7 @@ export function App() {
           severity={severityFor(five.percent)}
           resetHint={formatResetHint(five.resetsAt, now)}
           unavailableReason={windowReason(five, unavailableReason)}
-          stale={stale}
+          stale={five.stale}
         />
 
         <Meter
@@ -216,7 +219,7 @@ export function App() {
           severity={severityFor(seven.percent)}
           resetHint={formatResetHint(seven.resetsAt, now, { withDate: true })}
           unavailableReason={windowReason(seven, unavailableReason)}
-          stale={stale}
+          stale={seven.stale}
         />
 
         <p className="text-[10px]" style={{ color: "var(--text-muted)" }}>

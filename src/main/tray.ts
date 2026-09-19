@@ -150,7 +150,12 @@ export class TrayController {
       }
       const pct = formatPercent(view.percent) ?? "—";
       const hint = formatResetHint(view.resetsAt, now);
-      lines.push(`${label}: ${pct}${hint ? ` (${hint})` : ""}`);
+      // 下の「更新」は payload が届いた時刻。放置セッションが当時の値を書き続けると
+      // そちらは新しいままなので、数字そのものを最後に確認した時刻を枠ごとに添える。
+      const confirmed = view.stale ? formatAge(view.observedAt, now) : null;
+      lines.push(
+        `${label}: ${pct}${hint ? ` (${hint})` : ""}${confirmed ? ` · 確認 ${confirmed}` : ""}`,
+      );
     };
 
     describe("5時間枠", five);

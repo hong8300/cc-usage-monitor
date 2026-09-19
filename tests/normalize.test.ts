@@ -235,3 +235,105 @@ test("期限切れは「取得できない」ではなく「リセット済み�
 
   assert.equal(windowReason(view, "x", { short: true }), "リセット済み — 次の更新待ち");
 });
+
+/**
+ * 複数セッション同時起動で値が往復する問題の回帰テスト。
+ *
+ * 実測 (2026-09-20): `statusLine.refreshInterval` により起動中の全セッションが
+ * 30秒ごとにブリッジを走らせる。API 応答の無い tick では、そのセッションが最後に
+ * 受け取った rate_limits がそのまま書かれるので、放置セッションは当時の値を
+ * 書き続ける。latest.json は最後に書いた者が勝つため、メニューバーが
+ * 30% → 17% → 30% と往復していた。
+ */
+test("同じ枠の中で消費率が下がる payload は採らない（放置セッションの古い読み値）", () => {
+  const reset = 1789869000;
+
+  // 作業中のセッションが現在値を書く。
+  const current = mergeSnapshot(
+    null,
+    { rate_limits: { five_hour: { used_percentage: 30, resets_at: reset } } },
+    10_000,
+  );
+  assert.equal(current.fiveHour?.value.used_percentage, 30);
+
+  // 放置セッションが 30秒後に、当時キャッシュした 17% を同じ枠のまま書き込む。
+  const overwritten = mergeSnapshot(
+    current,
+    { rate_limits: { five_hour: { used_percentage: 17, resets_at: reset } } },
+    40_000,
+  );
+  assert.equal(overwritten.fiveHour?.value.used_percentage, 30, "17% に戻ってはいけない");
+  assert.equal(overwritten.fiveHour?.observedAt, 10_000, "確認した時刻も据え置く");
+  assert.equal(overwritten.lastPayloadAt, 40_000, "payload 自体の到着時刻は更新される");
+
+  // 実際に増えた値は当然通す。
+  const increased = mergeSnapshot(
+    overwritten,
+    { rate_limits: { five_hour: { used_percentage: 31, resets_at: reset } } },
+    70_000,
+  );
+  assert.equal(increased.fiveHour?.value.used_percentage, 31);
+  assert.equal(increased.fiveHour?.observedAt, 70_000);
+});
+
+test("枠が変われば消費率が下がっても採用する（本当のリセット）", () => {
+  const before = mergeSnapshot(
+    null,
+    { rate_limits: { five_hour: { used_percentage: 92, resets_at: 1789869000 } } },
+    10_000,
+  );
+  // 5時間後、新しい枠が始まって 3% に戻る。resets_at が先に進んでいる。
+  const after = mergeSnapshot(
+    before,
+    { rate_limits: { five_hour: { used_percentage: 3, resets_at: 1789887000 } } },
+    20_000,
+  );
+  assert.equal(after.fiveHour?.value.used_percentage, 3);
+  assert.equal(after.fiveHour?.observedAt, 20_000);
+});
+
+test("前の枠を指す payload は丸ごと捨てる（期限切れ表示に落とさない）", () => {
+  const current = mergeSnapshot(
+    null,
+    { rate_limits: { five_hour: { used_percentage: 30, resets_at: 1789869000 } } },
+    10_000,
+  );
+  // 朝から放置されたセッションが、前の枠の resets_at ごと再送してくる。
+  // これを採ると describeWindow が期限切れと判定し、現在値 30% が「—」に化ける。
+  const stale = mergeSnapshot(
+    current,
+    { rate_limits: { five_hour: { used_percentage: 62, resets_at: 1789851000 } } },
+    40_000,
+  );
+  assert.equal(stale.fiveHour?.value.used_percentage, 30);
+  assert.equal(stale.fiveHour?.value.resets_at, 1789869000);
+  assert.equal(stale.fiveHour?.observedAt, 10_000);
+});
+
+test("週次枠にも同じ規則が効く", () => {
+  const reset = 1790020800;
+  const current = mergeSnapshot(
+    null,
+    { rate_limits: { seven_day: { used_percentage: 9, resets_at: reset } } },
+    10_000,
+  );
+  const overwritten = mergeSnapshot(
+    current,
+    { rate_limits: { seven_day: { used_percentage: 4, resets_at: reset } } },
+    40_000,
+  );
+  assert.equal(overwritten.sevenDay?.value.used_percentage, 9);
+});
+
+test("resets_at が欠けている payload は枠を突き合わせられないので最新を信じる", () => {
+  // findings.md §2: 各フィールドは独立して欠損しうる。ここで前回値に固執すると、
+  // resets_at が載らない環境で値が永久に更新されなくなる。
+  const first = mergeSnapshot(null, { rate_limits: { five_hour: { used_percentage: 30 } } }, 10_000);
+  const second = mergeSnapshot(
+    first,
+    { rate_limits: { five_hour: { used_percentage: 5 } } },
+    40_000,
+  );
+  assert.equal(second.fiveHour?.value.used_percentage, 5);
+  assert.equal(second.fiveHour?.observedAt, 40_000);
+});

@@ -8,7 +8,6 @@ import {
 import {
   FIVE_HOUR_WINDOW_MS,
   SEVEN_DAY_WINDOW_MS,
-  STALE_AFTER_MS,
   type BridgeState,
   type UsageSnapshot,
 } from "../../shared/types.ts";
@@ -41,7 +40,7 @@ export function MiniPanel() {
   }, []);
 
   const lastAt = snapshot?.lastPayloadAt ?? null;
-  const stale = lastAt !== null && now - lastAt > STALE_AFTER_MS;
+  // 鮮度はウィンドウごとに見る (App.tsx と同じ理由: payload の到着 ≠ 数字の新しさ)。
   const five = describeWindow(snapshot?.fiveHour, now, { maxAgeMs: FIVE_HOUR_WINDOW_MS });
   const seven = describeWindow(snapshot?.sevenDay, now, { maxAgeMs: SEVEN_DAY_WINDOW_MS });
 
@@ -68,7 +67,7 @@ export function MiniPanel() {
         severity={severityFor(five.percent)}
         resetHint={formatResetHint(five.resetsAt, now)}
         unavailableReason={windowReason(five, unavailableReason, { short: true })}
-        stale={stale}
+        stale={five.stale}
         compact
       />
       <Meter
@@ -77,7 +76,7 @@ export function MiniPanel() {
         severity={severityFor(seven.percent)}
         resetHint={formatResetHint(seven.resetsAt, now)}
         unavailableReason={windowReason(seven, unavailableReason, { short: true })}
-        stale={stale}
+        stale={seven.stale}
         compact
       />
     </div>
