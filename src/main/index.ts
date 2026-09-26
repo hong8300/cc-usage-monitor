@@ -176,11 +176,12 @@ function applySideEffects(previous: AppSettings | null): void {
   // 「前回と変わったときだけ書く」だと、既定値を変えても既存ユーザーには一生届かない
   // (起動時は previous === null で、設定を触るまで比較が走らないため)。
   // 希望値と現物を比べる形にすれば、起動時のズレも設定変更も同じ経路で収束する。
-  // 一致していれば書かないので、毎回 settings.json を触ることにはならない。
+  // 起動時はスクリプト更新と旧版の自己参照設定の修復も行う。
+  // enableBridge は設定が一致していれば settings.json を書き換えない。
   const state = getBridgeState();
   if (
     state.status === "enabled" &&
-    state.refreshIntervalSeconds !== settings.statusLineRefreshSeconds
+    (previous === null || state.refreshIntervalSeconds !== settings.statusLineRefreshSeconds)
   ) {
     broadcast(
       IPC.bridgeStateChanged,

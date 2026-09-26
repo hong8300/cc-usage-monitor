@@ -23,6 +23,7 @@ import {
   BRIDGE_JS,
   BRIDGE_LOG,
   CLAUDE_SETTINGS,
+  HOME,
   LATEST_JSON,
   SETTINGS_BACKUP,
   SETTINGS_BACKUP_DIR,
@@ -84,7 +85,23 @@ function readSettings(): { exists: boolean; settings: Record<string, unknown>; r
 
 function isOurBridge(statusLine: StatusLineSetting | undefined | null): boolean {
   if (!statusLine || typeof statusLine.command !== "string") return false;
-  return statusLine.command.includes(BRIDGE_JS);
+  // 設定の移植などで絶対パスが $HOME / ${HOME} / ~ になっていても同一視する。
+  // シェルは実行せず、単純な node コマンドだけを認識する。
+  const tokens = [...statusLine.command.matchAll(/"([^"]*)"|'([^']*)'|([^\s]+)/g)]
+    .map((match) => match[1] ?? match[2] ?? match[3]);
+  if (tokens[0] === "exec") tokens.shift();
+  if (tokens.length !== 2 || !/^node(?:\.exe)?$/.test(path.basename(tokens[0]))) return false;
+  const script = tokens[1].replace(/^(?:\$HOME|\$\{HOME\}|~|%USERPROFILE%)(?=[/\\])/, () => HOME);
+  return path.normalize(script) === path.normalize(BRIDGE_JS);
+}
+
+/** 旧版が自身を「元の設定」として保存していた場合は復元・実行しない。 */
+function safeConfig(config: BridgeConfig): BridgeConfig {
+  const originalStatusLine = isOurBridge(config.originalStatusLine) ? null : config.originalStatusLine;
+  const originalCommand = isOurBridge({ command: config.originalCommand ?? undefined })
+    ? (typeof originalStatusLine?.command === "string" ? originalStatusLine.command : null)
+    : config.originalCommand;
+  return { ...config, originalCommand, originalStatusLine };
 }
 
 /** 現在の状態を settings.json から判定する。 */
@@ -154,13 +171,34 @@ export function enableBridge(options: EnableOptions = {}): BridgeState {
     const { exists, settings, raw } = readSettings();
     const existing = settings.statusLine as StatusLineSetting | undefined;
 
-    // 既にこちらのブリッジなら冪等に終わる。元コマンドを上書きして失わないため、
-    // ここで早期 return するのは重要。
+    // 既存の元コマンドを保持しつつ、旧版の自己参照設定も修復する。
     if (isOurBridge(existing)) {
+      const stored = readJsonFile<BridgeConfig>(BRIDGE_CONFIG_JSON);
+      const config = safeConfig(stored ?? {
+        bridgeScriptVersion: BRIDGE_SCRIPT_VERSION,
+        originalCommand: null,
+        originalStatusLine: null,
+        settingsFileExisted: exists,
+        enabledAt: new Date().toISOString(),
+      });
+      config.bridgeScriptVersion = BRIDGE_SCRIPT_VERSION;
+      if (JSON.stringify(stored) !== JSON.stringify(config)) {
+        // 壊れた元設定も、手動復旧の手掛かりとして保全する。
+        if (fs.existsSync(BRIDGE_CONFIG_JSON)) {
+          fs.mkdirSync(SETTINGS_BACKUP_DIR, { recursive: true });
+          const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+          fs.copyFileSync(BRIDGE_CONFIG_JSON, path.join(SETTINGS_BACKUP_DIR, `bridge-config-${stamp}.json`));
+        }
+        writeJsonAtomic(BRIDGE_CONFIG_JSON, config);
+      }
       // スクリプト本体は毎回書き直す (アプリ更新でブリッジが古いままになるのを防ぐ)。
       writeBridgeScript();
-      // refreshInterval だけは設定変更に追従させる。元コマンドの記録には触れない。
-      writeJsonAtomic(CLAUDE_SETTINGS, { ...settings, statusLine: buildStatusLine(options) });
+      const statusLine = { ...existing, ...buildStatusLine(options) };
+      if (options.refreshIntervalSeconds == null) delete statusLine.refreshInterval;
+      if (JSON.stringify(existing) !== JSON.stringify(statusLine)) {
+        backupSettings(raw);
+        writeJsonAtomic(CLAUDE_SETTINGS, { ...settings, statusLine });
+      }
       return getBridgeState();
     }
 
@@ -188,7 +226,7 @@ export function enableBridge(options: EnableOptions = {}): BridgeState {
 
 export function disableBridge(): BridgeState {
   try {
-    const { settings } = readSettings();
+    const { settings, raw } = readSettings();
     const current = settings.statusLine as StatusLineSetting | undefined;
 
     // こちらのブリッジでないものを勝手に消さない。
@@ -199,7 +237,8 @@ export function disableBridge(): BridgeState {
       };
     }
 
-    const config = readJsonFile<BridgeConfig>(BRIDGE_CONFIG_JSON);
+    const stored = readJsonFile<BridgeConfig>(BRIDGE_CONFIG_JSON);
+    const config = stored ? safeConfig(stored) : null;
     const next: Record<string, unknown> = { ...settings };
 
     if (config?.originalStatusLine) {
@@ -210,6 +249,7 @@ export function disableBridge(): BridgeState {
       delete next.statusLine;
     }
 
+    backupSettings(raw);
     writeJsonAtomic(CLAUDE_SETTINGS, next);
 
     // 設定は消えたので、実行時設定も畳んでおく。

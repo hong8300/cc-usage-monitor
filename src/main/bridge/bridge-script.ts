@@ -10,7 +10,7 @@
  * 依存は Node 組み込みのみ (アプリの node_modules に依存しない)。
  */
 
-export const BRIDGE_SCRIPT_VERSION = 1;
+export const BRIDGE_SCRIPT_VERSION = 2;
 
 export function renderBridgeScript(options: {
   latestJsonPath: string;
@@ -108,6 +108,13 @@ process.stdin.on("end", () => {
     logError("parse", err);
   }
 
+  // ラッパーや別表記のパス経由でも、子孫のブリッジから再起動させない。
+  if (process.env.CC_USAGE_MONITOR_BRIDGE_ACTIVE === "1") {
+    logError("recursion-blocked", new Error("recursive statusLine bridge invocation"));
+    process.stdout.write(defaultLine(payload));
+    return;
+  }
+
   // 1) 取り込み。パースできなくても生テキストは落としておく (デバッグのため)。
   try {
     writeAtomic(LATEST, buf);
@@ -134,7 +141,10 @@ process.stdin.on("end", () => {
   try {
     const shell = process.platform === "win32" ? process.env.COMSPEC || "cmd.exe" : "/bin/sh";
     const args = process.platform === "win32" ? ["/d", "/s", "/c", original] : ["-c", original];
-    const child = spawn(shell, args, { stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn(shell, args, {
+      stdio: ["pipe", "pipe", "pipe"],
+      env: { ...process.env, CC_USAGE_MONITOR_BRIDGE_ACTIVE: "1" },
+    });
 
     let out = "";
     let errOut = "";

@@ -46,6 +46,7 @@ function runBridge(payload: unknown): string {
   return execFileSync(process.execPath, [path.join(home, ".cc-usage-monitor", "bridge.js")], {
     input: JSON.stringify(payload),
     encoding: "utf8",
+    timeout: 3000,
   });
 }
 
@@ -215,4 +216,101 @@ test("settings.json が壊れた JSON なら上書きせずエラーを返す", 
   assert.equal(state.status, "error");
   // 壊れたファイルを更に壊していないこと。
   assert.equal(fs.readFileSync(claudeSettings, "utf8"), "{ broken json");
+});
+
+for (const script of [
+  '"$HOME/.cc-usage-monitor/bridge.js"',
+  '"${HOME}/.cc-usage-monitor/bridge.js"',
+  "~/.cc-usage-monitor/bridge.js",
+  '"%USERPROFILE%/.cc-usage-monitor/bridge.js"',
+]) {
+  test(`ホーム省略形 ${script} を再有効化しても元コマンドを保持する`, () => {
+    const original = { type: "command", command: "echo original", padding: 2 };
+    writeSettings({ model: "test", statusLine: original });
+    bridge.enableBridge();
+    writeSettings({ model: "test", statusLine: { type: "command", command: `node ${script}` } });
+    assert.equal(bridge.getBridgeState().status, "enabled");
+    const state = bridge.enableBridge({ refreshIntervalSeconds: 30 });
+    assert.equal(state.status === "enabled" ? state.wrappedCommand : undefined, original.command);
+    bridge.disableBridge();
+    assert.deepEqual(readSettings(), { model: "test", statusLine: original });
+  });
+}
+
+test("自己参照する旧設定を再有効化で修復・保全し、無効化でも復元しない", () => {
+  const configPath = path.join(home, ".cc-usage-monitor", "bridge-config.json");
+  for (const command of ['node "$HOME/.cc-usage-monitor/bridge.js"', `node "${bridge.bridgePaths.bridge}"`]) {
+    const recursive = { type: "command", command, refreshInterval: 30 };
+    const config = {
+      bridgeScriptVersion: 1,
+      originalCommand: command,
+      originalStatusLine: recursive,
+      settingsFileExisted: true,
+      enabledAt: "2026-09-22T01:30:41.713Z",
+    };
+    writeSettings({ model: "keep", statusLine: recursive });
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    const state = bridge.enableBridge({ refreshIntervalSeconds: 30 });
+    assert.equal(state.status === "enabled" ? state.wrappedCommand : undefined, null);
+    const repaired = JSON.parse(fs.readFileSync(configPath, "utf8"));
+    assert.equal(repaired.originalStatusLine, null);
+    assert.equal(repaired.bridgeScriptVersion, 2);
+    assert.equal(repaired.enabledAt, config.enabledAt);
+    const backups = fs.readdirSync(bridge.bridgePaths.backupDir).filter((name) => name.startsWith("bridge-config-"));
+    assert.ok(backups.some((name) => fs.readFileSync(path.join(bridge.bridgePaths.backupDir, name), "utf8") === JSON.stringify(config)));
+    assert.equal(runBridge({ model: { display_name: "safe" } }), "safe");
+    bridge.disableBridge();
+    assert.deepEqual(readSettings(), { model: "keep" });
+
+    // 再有効化を経ずに無効化する場合も、壊れた元設定を復元しない。
+    writeSettings({ model: "keep", statusLine: recursive });
+    fs.writeFileSync(configPath, JSON.stringify(config));
+    assert.equal(bridge.disableBridge().status, "disabled");
+    assert.deepEqual(readSettings(), { model: "keep" });
+  }
+});
+
+test("既存ブリッジの設定ファイルが無くても自身を元コマンドとして保存しない", () => {
+  fs.rmSync(path.join(home, ".cc-usage-monitor", "bridge-config.json"), { force: true });
+  writeSettings({ statusLine: { type: "command", command: 'node "$HOME/.cc-usage-monitor/bridge.js"' } });
+  const state = bridge.enableBridge();
+  assert.equal(state.status === "enabled" ? state.wrappedCommand : undefined, null);
+  bridge.disableBridge();
+  assert.deepEqual(readSettings(), {});
+});
+
+test("同じ更新間隔でもスクリプトを更新し、settings.json は書き換えない", () => {
+  writeSettings({});
+  bridge.enableBridge({ refreshIntervalSeconds: 30 });
+  const before = fs.statSync(claudeSettings);
+  fs.writeFileSync(bridge.bridgePaths.bridge, "// old script");
+  bridge.enableBridge({ refreshIntervalSeconds: 30 });
+  assert.equal(fs.statSync(claudeSettings).mtimeMs, before.mtimeMs);
+  assert.match(fs.readFileSync(bridge.bridgePaths.bridge, "utf8"), /bridgeScriptVersion: 2/);
+});
+
+test("bridge.js に似た別コマンドや単なる文字列出力は他ツールとして保持する", () => {
+  for (const command of [`node "${bridge.bridgePaths.bridge}.other"`, `echo "${bridge.bridgePaths.bridge}"`]) {
+    writeSettings({ statusLine: { type: "command", command } });
+    assert.equal(bridge.getBridgeState().status, "foreign");
+    assert.equal(bridge.disableBridge().status, "foreign");
+    assert.deepEqual(readSettings().statusLine, { type: "command", command });
+  }
+});
+
+test("bridge.js: 間接的な自己呼び出しも子プロセスのガードで停止する", () => {
+  const wrapper = path.join(home, "wrapper.cjs");
+  const count = path.join(home, "invocations.txt");
+  // ガードに回帰があってもテスト自身がプロセスを無限生成しないよう上限を設ける。
+  fs.writeFileSync(wrapper, `
+    const fs = require('node:fs');
+    fs.appendFileSync(${JSON.stringify(count)}, 'call\\n');
+    if (fs.readFileSync(${JSON.stringify(count)}, 'utf8').split('\\n').length > 4) process.exit(23);
+    require(${JSON.stringify(bridge.bridgePaths.bridge)});
+  `);
+  writeSettings({ statusLine: { type: "command", command: `"${process.execPath}" "${wrapper}"` } });
+  bridge.enableBridge();
+  assert.equal(runBridge({ model: { display_name: "safe" } }), "safe");
+  assert.equal(fs.readFileSync(count, "utf8"), "call\n");
+  assert.match(fs.readFileSync(bridge.bridgePaths.log, "utf8"), /recursion-blocked/);
 });
